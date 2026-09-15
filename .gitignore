@@ -1,0 +1,23 @@
+# Java / Maven
+**/target/
+
+# Go
+runner/bin/
+runner/coverage.out
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
