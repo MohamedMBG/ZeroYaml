@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package zeroyaml.runner.v1;
+
+option java_multiple_files = true;
+option java_package = "io.zeroyaml.contracts.runner.v1";
+option java_outer_classname = "RunnerProto";
+
+option go_package = "github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1;runnerv1";
+
+service RunnerService {
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+
+message PingRequest {
+  string message = 1;
+}
+
+message PingResponse {
+  string message = 1;
+  string runner_version = 2;
+} 
