@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: read
+  issues: read
+  pull-requests: read
 
 jobs:
   runner:
@@ -77,3 +79,93 @@ jobs:
               exit 1
             fi
           done
+
+  phase-gate:
+    name: phase-gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Enforce the current phase gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+
+          progress_file='docs/project-progress.md'
+          base_phase="$(git show "$BASE_SHA:$progress_file" | sed -nE 's/^Current phase: ([0-9]+)$/\1/p' | head -n1 || true)"
+          head_phase="$(sed -nE 's/^Current phase: ([0-9]+)$/\1/p' "$progress_file" | head -n1 || true)"
+
+          # The first rollout may target a base commit from before the gate line existed.
+          if [[ -z "$base_phase" ]]; then
+            base_phase=1
+          fi
+
+          if [[ ! "$base_phase" =~ ^[1-9][0-9]*$ || ! "$head_phase" =~ ^[1-9][0-9]*$ ]]; then
+            echo 'docs/project-progress.md must contain a numeric "Current phase: N" line.' >&2
+            exit 1
+          fi
+
+          if (( head_phase < base_phase )); then
+            echo "The current phase cannot move backwards (base: $base_phase, PR: $head_phase)." >&2
+            exit 1
+          fi
+
+          if (( head_phase > base_phase + 1 )); then
+            echo "The phase gate cannot skip phases (base: $base_phase, PR: $head_phase)." >&2
+            exit 1
+          fi
+
+          pr_body="$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq '.body // ""')"
+          mapfile -t issue_numbers < <(
+            printf '%s\n' "$pr_body" \
+              | grep -oE '(^|[^[:alnum:]])#[0-9]+' \
+              | grep -oE '[0-9]+' \
+              | sort -nu || true
+          )
+
+          if (( ${#issue_numbers[@]} == 0 )); then
+            echo 'Every pull request must reference at least one phase-labeled GitHub issue.' >&2
+            exit 1
+          fi
+
+          for issue_number in "${issue_numbers[@]}"; do
+            issue_json="$(gh api "repos/$REPOSITORY/issues/$issue_number")"
+            if jq -e '.pull_request != null' >/dev/null <<<"$issue_json"; then
+              continue
+            fi
+
+            issue_phase="$(jq -r '[.labels[]?.name | select(test("^phase:[0-9]+$")) | sub("^phase:"; "")] | first // empty' <<<"$issue_json")"
+            if [[ ! "$issue_phase" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Issue #$issue_number is not assigned a phase label (phase:N)." >&2
+              exit 1
+            fi
+
+            if (( issue_phase > head_phase )); then
+              echo "Issue #$issue_number belongs to Phase $issue_phase, but Phase $head_phase is the active phase." >&2
+              echo 'Finish the current phase before starting work in a later phase.' >&2
+              exit 1
+            fi
+          done
+
+          if (( head_phase > base_phase )); then
+            phase_label="phase:$base_phase"
+            remaining="$(gh api --paginate "repos/$REPOSITORY/issues?state=all&labels=phase%3A${base_phase}&per_page=100" \
+              --jq '.[] | select(.pull_request == null and .state != "closed") | "#\(.number) \(.title)"' || true)"
+            if [[ -n "$remaining" ]]; then
+              echo "Phase $base_phase cannot be completed yet. Open issues remain:" >&2
+              echo "$remaining" >&2
+              exit 1
+            fi
+            echo "Phase $base_phase is complete; advancing to Phase $head_phase is allowed."
+          else
+            echo "Phase $head_phase is active; later phases are locked."
+          fi

@@ -2,6 +2,13 @@
 
 <!-- What changed and why? -->
 
+## Issue tracking
+
+<!-- Use a closing reference such as "Closes #123". The issue must have a phase:N label. -->
+
+- Issue reference: Closes #
+- [ ] This change belongs to the current active phase.
+
 ## Project progress
 
 - [ ] I updated `docs/project-progress.md` with the current project state.
