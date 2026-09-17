@@ -4,7 +4,7 @@ Last updated: 2026-09-17
 
 ## Current state
 
-Phase 1 — Foundation is in progress. The control-plane and runner foundations are bootstrapped, the runner gRPC contract is checked in, and local infrastructure is available for development. CI/CD now validates both services, requires progress updates on pull requests, and protects `main` behind reviewed changes.
+Phase 1 — Foundation is in progress. The control-plane and runner foundations are bootstrapped, the runner gRPC contract is checked in, and local infrastructure is available for development. CI/CD now validates both services, requires progress updates on pull requests, and protects `main` behind reviewed changes. The engineering board now contains only ZeroYAML phases and issues; Phases 3–7 are planned backlog work, not completed work.
 
 ## Completed
 
@@ -21,10 +21,21 @@ Phase 1 — Foundation is in progress. The control-plane and runner foundations 
 - Implement the first end-to-end control-plane to runner workflow.
 - Expand automated coverage as features land.
 
+## Roadmap
+
+- Phase 1 — Foundation & Core Runtime: in progress.
+- Phase 2 — GitHub Integration & First E2E Pipeline: backlog/next delivery target.
+- Phase 3 — Pipeline Lifecycle & Job Orchestration: planned.
+- Phase 4 — Developer Feedback, Logs & Artifacts: planned.
+- Phase 5 — Reliability & Recovery: planned.
+- Phase 6 — Scale, Isolation & Security: planned.
+- Phase 7 — Production Deployment & Operations: planned.
+
 ## Next steps
 
-- Document deployment and operational procedures.
-- Define operational readiness criteria for the first end-to-end workflow.
+- Finish the first end-to-end control-plane to runner workflow.
+- Complete the Phase 2 GitHub integration and first E2E pipeline issues.
+- Plan implementation sequencing for Phase 3 after Phase 2 is validated.
 
 ## Risks and blockers
 
