@@ -4,7 +4,7 @@ Last updated: 2026-09-17
 
 ## Current state
 
-Phase 1 — Foundation is in progress. The control-plane and runner foundations are bootstrapped, the runner gRPC contract is checked in, and local infrastructure is available for development. CI/CD governance is being established so changes land through reviewed pull requests.
+Phase 1 — Foundation is in progress. The control-plane and runner foundations are bootstrapped, the runner gRPC contract is checked in, and local infrastructure is available for development. CI/CD now validates both services, requires progress updates on pull requests, and protects `main` behind reviewed changes.
 
 ## Completed
 
@@ -12,17 +12,19 @@ Phase 1 — Foundation is in progress. The control-plane and runner foundations 
 - Bootstrapped the Go runner service.
 - Added the runner gRPC service contract and generated bindings.
 - Added local infrastructure for development.
+- Added CI for the Go runner and Java control plane.
+- Protected `main` with required checks and two approving reviews.
+- Set `main` as the default branch.
 
 ## In progress
 
-- Establish automated CI for the control plane and runner.
-- Enforce reviewed pull requests and progress tracking on `main`.
+- Implement the first end-to-end control-plane to runner workflow.
+- Expand automated coverage as features land.
 
 ## Next steps
 
-- Implement the first end-to-end control-plane to runner workflow.
-- Add focused unit and integration coverage as features land.
 - Document deployment and operational procedures.
+- Define operational readiness criteria for the first end-to-end workflow.
 
 ## Risks and blockers
 
