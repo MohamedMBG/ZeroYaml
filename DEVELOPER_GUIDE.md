@@ -606,6 +606,16 @@ Override them with Spring Boot environment variables such as `ZEROYAML_RUNNER_HO
 - Go
 - Docker
 
+The Runner reads startup configuration from environment variables and keeps safe local defaults:
+
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `ZEROYAML_RUNNER_GRPC_ADDRESS` | `:50051` | TCP address used by the Runner gRPC server |
+| `ZEROYAML_RUNNER_ID` | `local-runner` | Local Runner identity shown in startup logs |
+| `ZEROYAML_RUNNER_VERSION` | `0.1.0` | Runner version returned by `RunnerService.Ping` |
+
+`ZEROYAML_RUNNER_GRPC_ADDRESS` must use host-and-port syntax such as `:50051` or `127.0.0.1:50051`. Invalid values fail startup with an actionable configuration error.
+
 ### Frontend development
 
 When the frontend is introduced:
