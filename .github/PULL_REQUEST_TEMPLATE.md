@@ -4,9 +4,9 @@
 
 ## Issue tracking
 
-<!-- Use a closing reference such as "Closes #123". The issue must have a phase:N label. -->
+<!-- Use a closing reference such as "Closes #<issue-number>". The issue must have a phase:N label. -->
 
-- Issue reference: Closes #
+- Issue reference: Closes #<issue-number>
 - [ ] This change belongs to the current active phase.
 
 ## Project progress
