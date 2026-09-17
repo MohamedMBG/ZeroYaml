@@ -67,3 +67,13 @@ jobs:
             echo 'Every pull request must update docs/project-progress.md.' >&2
             exit 1
           fi
+
+      - name: Validate project progress document
+        run: |
+          test -s docs/project-progress.md
+          for section in 'Current state' 'Completed' 'In progress' 'Next steps' 'Risks and blockers'; do
+            if ! grep -Fqx "## $section" docs/project-progress.md; then
+              echo "docs/project-progress.md is missing the '$section' section." >&2
+              exit 1
+            fi
+          done
