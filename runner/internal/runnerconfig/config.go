@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -14,9 +15,16 @@ const (
 	defaultRunnerID    = "local-runner"
 	defaultVersion     = "0.1.0"
 
-	envGRPCAddress = "ZEROYAML_RUNNER_GRPC_ADDRESS"
-	envRunnerID    = "ZEROYAML_RUNNER_ID"
-	envVersion     = "ZEROYAML_RUNNER_VERSION"
+	// defaultShutdownTimeout bounds how long the Runner waits for in-flight RPCs
+	// to finish after a termination signal. It leaves room for short RPCs to
+	// complete while staying below the ten-second stop grace period that Docker
+	// applies by default.
+	defaultShutdownTimeout = 5 * time.Second
+
+	envGRPCAddress     = "ZEROYAML_RUNNER_GRPC_ADDRESS"
+	envRunnerID        = "ZEROYAML_RUNNER_ID"
+	envVersion         = "ZEROYAML_RUNNER_VERSION"
+	envShutdownTimeout = "ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT"
 )
 
 // Config contains startup configuration for the Runner process.
@@ -24,14 +32,24 @@ type Config struct {
 	GRPCAddress string
 	RunnerID    string
 	Version     string
+
+	// ShutdownTimeout bounds the drain phase of a graceful shutdown. When it
+	// expires, the remaining RPCs are cancelled so the process always terminates.
+	ShutdownTimeout time.Duration
 }
 
 // Load reads Runner configuration from environment variables and validates it.
 func Load() (Config, error) {
+	shutdownTimeout, err := durationFromEnv(envShutdownTimeout, defaultShutdownTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
-		GRPCAddress: valueFromEnv(envGRPCAddress, defaultGRPCAddress),
-		RunnerID:    valueFromEnv(envRunnerID, defaultRunnerID),
-		Version:     valueFromEnv(envVersion, defaultVersion),
+		GRPCAddress:     valueFromEnv(envGRPCAddress, defaultGRPCAddress),
+		RunnerID:        valueFromEnv(envRunnerID, defaultRunnerID),
+		Version:         valueFromEnv(envVersion, defaultVersion),
+		ShutdownTimeout: shutdownTimeout,
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -59,6 +77,10 @@ func (c Config) Validate() error {
 		return fmt.Errorf("%s must not be empty", envVersion)
 	}
 
+	if c.ShutdownTimeout <= 0 {
+		return fmt.Errorf("%s must be greater than zero, got %s", envShutdownTimeout, c.ShutdownTimeout)
+	}
+
 	return nil
 }
 
@@ -68,6 +90,20 @@ func valueFromEnv(name string, fallback string) string {
 	}
 
 	return fallback
+}
+
+func durationFromEnv(name string, fallback time.Duration) (time.Duration, error) {
+	rawValue, isSet := os.LookupEnv(name)
+	if !isSet {
+		return fallback, nil
+	}
+
+	value, err := time.ParseDuration(strings.TrimSpace(rawValue))
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a Go duration such as 5s or 500ms: %w", name, err)
+	}
+
+	return value, nil
 }
 
 func validateTCPAddress(address string) error {
