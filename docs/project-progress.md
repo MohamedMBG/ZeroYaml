@@ -8,7 +8,7 @@ Phase gate: work in a later phase is locked until the current phase parent issue
 
 ## Current state
 
-Phase 1 — Foundation is in progress and is the only active delivery phase. The control-plane and runner foundations are bootstrapped, the shared runner gRPC contract is checked in, and the Control Plane can call `RunnerService.Ping` through a generated Java client. Local infrastructure is available for development. CI/CD validates both services, requires progress updates on pull requests, protects `main` behind reviewed changes, and blocks pull requests for later phases. The engineering board contains only ZeroYAML phases and issues; Phases 2–7 are locked backlog work, not completed work.
+Phase 1 — Foundation is in progress and is the only active delivery phase. The control-plane and runner foundations are bootstrapped, the shared runner gRPC contract is checked in, and the Control Plane can call `RunnerService.Ping` through a generated Java client. Runner startup configuration is being externalized for issue #6 so local and future deployment environments can provide explicit endpoint, identity, and version settings. Local infrastructure is available for development. CI/CD validates both services, requires progress updates on pull requests, protects `main` behind reviewed changes, and blocks pull requests for later phases. The engineering board contains only ZeroYAML phases and issues; Phases 2–7 are locked backlog work, not completed work.
 
 ## Completed
 
@@ -23,6 +23,7 @@ Phase 1 — Foundation is in progress and is the only active delivery phase. The
 
 ## In progress
 
+- Externalize Runner runtime configuration for issue #6.
 - Implement the next Control Plane to Runner integration steps: registration, heartbeat, and job dispatch.
 - Expand automated coverage as features land.
 

@@ -6,31 +6,33 @@ import (
 
 	runnerv1 "github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1"
 	"github.com/MohamedMBG/ZeroYaml/runner/internal/grpcserver"
+	"github.com/MohamedMBG/ZeroYaml/runner/internal/runnerconfig"
 	"google.golang.org/grpc"
 )
 
-const (
-	address = ":50051"
-	version = "0.1.0"
-)
-
 func main() {
-	listener, err := net.Listen("tcp", address)
+	cfg, err := runnerconfig.Load()
 	if err != nil {
-		log.Fatalf("failed to listen on %s: %v", address, err)
+		log.Fatalf("invalid runner configuration: %v", err)
+	}
+
+	listener, err := net.Listen("tcp", cfg.GRPCAddress)
+	if err != nil {
+		log.Fatalf("failed to listen on %s: %v", cfg.GRPCAddress, err)
 	}
 
 	server := grpc.NewServer()
 
 	runnerv1.RegisterRunnerServiceServer(
 		server,
-		grpcserver.New(version),
+		grpcserver.New(cfg.Version),
 	)
 
 	log.Printf(
-		"ZeroYAML Runner gRPC server listening on %s - version %s",
-		address,
-		version,
+		"ZeroYAML Runner gRPC server listening on %s - runner %s - version %s",
+		cfg.GRPCAddress,
+		cfg.RunnerID,
+		cfg.Version,
 	)
 
 	if err := server.Serve(listener); err != nil {
