@@ -589,6 +589,18 @@ Before working on ZeroYAML, install:
 
 - Java 21
 
+### Control Plane Runner connection
+
+The Control Plane generates its Java gRPC client from `proto/runner/v1/runner.proto` during the Maven build. The local Runner connection uses these defaults:
+
+| Property | Default | Purpose |
+| --- | --- | --- |
+| `zeroyaml.runner.host` | `localhost` | Runner host name |
+| `zeroyaml.runner.port` | `50051` | Runner gRPC port |
+| `zeroyaml.runner.ping-deadline` | `2s` | Ping RPC deadline |
+
+Override them with Spring Boot environment variables such as `ZEROYAML_RUNNER_HOST`, `ZEROYAML_RUNNER_PORT`, and `ZEROYAML_RUNNER_PING_DEADLINE`; do not hardcode deployment endpoints in Java code.
+
 ### Runner development
 
 - Go
@@ -646,6 +658,14 @@ Push-Location runner
 go test ./...
 Pop-Location
 ```
+
+To generate the Control Plane gRPC client and verify its Ping integration path, run:
+
+```powershell
+.\control-plane\mvnw.cmd test
+```
+
+The focused Ping test uses an in-process Runner and does not require a separately running Runner process.
 
 ---
 
