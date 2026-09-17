@@ -8,7 +8,7 @@ Phase gate: work in a later phase is locked until the current phase parent issue
 
 ## Current state
 
-Phase 1 — Foundation is in progress and is the only active delivery phase. The control-plane and runner foundations are bootstrapped, the shared runner gRPC contract is checked in, and the Control Plane can call `RunnerService.Ping` through a generated Java client. Runner startup configuration is being externalized for issue #6 so local and future deployment environments can provide explicit endpoint, identity, and version settings. Local infrastructure is available for development. CI/CD validates both services, requires progress updates on pull requests, protects `main` behind reviewed changes, and blocks pull requests for later phases. The engineering board contains only ZeroYAML phases and issues; Phases 2–7 are locked backlog work, not completed work.
+Phase 1 — Foundation is in progress and is the only active delivery phase. The control-plane and runner foundations are bootstrapped, the shared runner gRPC contract is checked in, and the Control Plane can call `RunnerService.Ping` through a generated Java client. Runner startup configuration is externalized, so local and future deployment environments provide explicit endpoint, identity, and version settings. Runner shutdown behavior is being added for issue #7 so a termination signal drains in-flight RPCs within a bounded timeout and releases the listener instead of dropping work. Local infrastructure is available for development. CI/CD validates both services, requires progress updates on pull requests, protects `main` behind reviewed changes, and blocks pull requests for later phases. The engineering board contains only ZeroYAML phases and issues; Phases 2–7 are locked backlog work, not completed work.
 
 ## Completed
 
@@ -16,6 +16,7 @@ Phase 1 — Foundation is in progress and is the only active delivery phase. The
 - Bootstrapped the Go runner service.
 - Added the runner gRPC service contract and generated bindings.
 - Added the generated Java gRPC client and Control Plane Ping integration for the Runner.
+- Externalized Runner startup configuration into environment variables with validated defaults.
 - Added local infrastructure for development.
 - Added CI for the Go runner and Java control plane.
 - Protected `main` with required checks and two approving reviews.
@@ -23,7 +24,7 @@ Phase 1 — Foundation is in progress and is the only active delivery phase. The
 
 ## In progress
 
-- Externalize Runner runtime configuration for issue #6.
+- Add bounded graceful shutdown to the Runner gRPC server for issue #7.
 - Implement the next Control Plane to Runner integration steps: registration, heartbeat, and job dispatch.
 - Expand automated coverage as features land.
 

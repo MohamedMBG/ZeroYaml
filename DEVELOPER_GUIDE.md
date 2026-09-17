@@ -613,8 +613,28 @@ The Runner reads startup configuration from environment variables and keeps safe
 | `ZEROYAML_RUNNER_GRPC_ADDRESS` | `:50051` | TCP address used by the Runner gRPC server |
 | `ZEROYAML_RUNNER_ID` | `local-runner` | Local Runner identity shown in startup logs |
 | `ZEROYAML_RUNNER_VERSION` | `0.1.0` | Runner version returned by `RunnerService.Ping` |
+| `ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT` | `5s` | Bound on draining in-flight RPCs during shutdown |
 
 `ZEROYAML_RUNNER_GRPC_ADDRESS` must use host-and-port syntax such as `:50051` or `127.0.0.1:50051`. Invalid values fail startup with an actionable configuration error.
+
+`ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT` must be a positive Go duration such as `5s` or `500ms`. Keep it below the stop grace period of the process supervisor, otherwise the supervisor kills the Runner before draining completes.
+
+### Runner shutdown
+
+The Runner stops on `SIGINT` (local `Ctrl+C`) and on `SIGTERM` (containers and service managers). On either signal it:
+
+1. closes the gRPC listener, so no new connection or RPC is accepted;
+2. waits for in-flight RPCs to finish, bounded by `ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT`;
+3. cancels the remaining RPCs when that timeout expires, so the process always terminates.
+
+Verify it locally:
+
+```powershell
+Push-Location runner
+go run ./cmd/runner
+# Press Ctrl+C and confirm the shutdown log line appears and the process exits.
+Pop-Location
+```
 
 ### Frontend development
 

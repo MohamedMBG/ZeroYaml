@@ -4,12 +4,14 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadUsesSafeLocalDefaults(t *testing.T) {
 	unsetForTest(t, envGRPCAddress)
 	unsetForTest(t, envRunnerID)
 	unsetForTest(t, envVersion)
+	unsetForTest(t, envShutdownTimeout)
 
 	cfg, err := Load()
 	if err != nil {
@@ -25,12 +27,16 @@ func TestLoadUsesSafeLocalDefaults(t *testing.T) {
 	if cfg.Version != defaultVersion {
 		t.Fatalf("expected version %q, got %q", defaultVersion, cfg.Version)
 	}
+	if cfg.ShutdownTimeout != defaultShutdownTimeout {
+		t.Fatalf("expected shutdown timeout %s, got %s", defaultShutdownTimeout, cfg.ShutdownTimeout)
+	}
 }
 
 func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv(envGRPCAddress, "127.0.0.1:51001")
 	t.Setenv(envRunnerID, "developer-runner")
 	t.Setenv(envVersion, "1.2.3")
+	t.Setenv(envShutdownTimeout, "250ms")
 
 	cfg, err := Load()
 	if err != nil {
@@ -45,6 +51,58 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.Version != "1.2.3" {
 		t.Fatalf("expected override version, got %q", cfg.Version)
+	}
+	if cfg.ShutdownTimeout != 250*time.Millisecond {
+		t.Fatalf("expected override shutdown timeout, got %s", cfg.ShutdownTimeout)
+	}
+}
+
+func TestLoadRejectsInvalidShutdownTimeout(t *testing.T) {
+	tests := []struct {
+		name            string
+		shutdownTimeout string
+		wantError       string
+	}{
+		{
+			name:            "not a duration",
+			shutdownTimeout: "soon",
+			wantError:       "must be a Go duration",
+		},
+		{
+			name:            "missing unit",
+			shutdownTimeout: "5",
+			wantError:       "must be a Go duration",
+		},
+		{
+			name:            "zero",
+			shutdownTimeout: "0s",
+			wantError:       "must be greater than zero",
+		},
+		{
+			name:            "negative",
+			shutdownTimeout: "-1s",
+			wantError:       "must be greater than zero",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(envGRPCAddress, defaultGRPCAddress)
+			t.Setenv(envRunnerID, defaultRunnerID)
+			t.Setenv(envVersion, defaultVersion)
+			t.Setenv(envShutdownTimeout, tt.shutdownTimeout)
+
+			_, err := Load()
+			if err == nil {
+				t.Fatal("expected an invalid shutdown timeout to fail")
+			}
+			if !strings.Contains(err.Error(), envShutdownTimeout) {
+				t.Fatalf("expected the error to name %s, got %q", envShutdownTimeout, err.Error())
+			}
+			if !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("expected error containing %q, got %q", tt.wantError, err.Error())
+			}
+		})
 	}
 }
 
