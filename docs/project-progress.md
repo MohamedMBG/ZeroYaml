@@ -25,7 +25,7 @@ Phase 1 — Foundation is in progress and is the only active delivery phase. The
 ## In progress
 
 - Add bounded graceful shutdown to the Runner gRPC server for issue #7.
-- Define the Runner identity and registration contract for issue #9. The local Runner work includes a stable configured `runner_id`, a cryptographically random `instance_id` that startup wiring will create once per process, and baseline capabilities from the Go runtime. Docker remains unavailable until execution support is verified; registration, heartbeat, and availability behavior remain pending.
+- Define the Runner identity and registration contract for issue #9. This branch now includes the versioned identity, capability, status, and registration result contract, Runner `GetInfo` reporting, and the Control Plane client mapping. Docker remains unavailable until execution support is verified; registration transport wiring, persistence, heartbeat, and availability scheduling remain pending.
 - Implement the next Control Plane to Runner integration steps: registration, heartbeat, and job dispatch.
 - Expand automated coverage as features land.
 

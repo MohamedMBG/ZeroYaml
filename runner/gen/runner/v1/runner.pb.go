@@ -21,6 +21,113 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type RunnerStatus int32
+
+const (
+	RunnerStatus_RUNNER_STATUS_UNSPECIFIED RunnerStatus = 0
+	RunnerStatus_RUNNER_STATUS_STARTING    RunnerStatus = 1
+	RunnerStatus_RUNNER_STATUS_READY       RunnerStatus = 2
+	RunnerStatus_RUNNER_STATUS_DRAINING    RunnerStatus = 3
+	RunnerStatus_RUNNER_STATUS_UNAVAILABLE RunnerStatus = 4
+)
+
+// Enum value maps for RunnerStatus.
+var (
+	RunnerStatus_name = map[int32]string{
+		0: "RUNNER_STATUS_UNSPECIFIED",
+		1: "RUNNER_STATUS_STARTING",
+		2: "RUNNER_STATUS_READY",
+		3: "RUNNER_STATUS_DRAINING",
+		4: "RUNNER_STATUS_UNAVAILABLE",
+	}
+	RunnerStatus_value = map[string]int32{
+		"RUNNER_STATUS_UNSPECIFIED": 0,
+		"RUNNER_STATUS_STARTING":    1,
+		"RUNNER_STATUS_READY":       2,
+		"RUNNER_STATUS_DRAINING":    3,
+		"RUNNER_STATUS_UNAVAILABLE": 4,
+	}
+)
+
+func (x RunnerStatus) Enum() *RunnerStatus {
+	p := new(RunnerStatus)
+	*p = x
+	return p
+}
+
+func (x RunnerStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RunnerStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_runner_v1_runner_proto_enumTypes[0].Descriptor()
+}
+
+func (RunnerStatus) Type() protoreflect.EnumType {
+	return &file_runner_v1_runner_proto_enumTypes[0]
+}
+
+func (x RunnerStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RunnerStatus.Descriptor instead.
+func (RunnerStatus) EnumDescriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{0}
+}
+
+type RegistrationResult int32
+
+const (
+	RegistrationResult_REGISTRATION_RESULT_UNSPECIFIED RegistrationResult = 0
+	RegistrationResult_REGISTRATION_ACCEPTED           RegistrationResult = 1
+	RegistrationResult_REGISTRATION_ALREADY_REGISTERED RegistrationResult = 2
+	RegistrationResult_REGISTRATION_IDENTITY_CONFLICT  RegistrationResult = 3
+)
+
+// Enum value maps for RegistrationResult.
+var (
+	RegistrationResult_name = map[int32]string{
+		0: "REGISTRATION_RESULT_UNSPECIFIED",
+		1: "REGISTRATION_ACCEPTED",
+		2: "REGISTRATION_ALREADY_REGISTERED",
+		3: "REGISTRATION_IDENTITY_CONFLICT",
+	}
+	RegistrationResult_value = map[string]int32{
+		"REGISTRATION_RESULT_UNSPECIFIED": 0,
+		"REGISTRATION_ACCEPTED":           1,
+		"REGISTRATION_ALREADY_REGISTERED": 2,
+		"REGISTRATION_IDENTITY_CONFLICT":  3,
+	}
+)
+
+func (x RegistrationResult) Enum() *RegistrationResult {
+	p := new(RegistrationResult)
+	*p = x
+	return p
+}
+
+func (x RegistrationResult) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RegistrationResult) Descriptor() protoreflect.EnumDescriptor {
+	return file_runner_v1_runner_proto_enumTypes[1].Descriptor()
+}
+
+func (RegistrationResult) Type() protoreflect.EnumType {
+	return &file_runner_v1_runner_proto_enumTypes[1]
+}
+
+func (x RegistrationResult) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RegistrationResult.Descriptor instead.
+func (RegistrationResult) EnumDescriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{1}
+}
+
 type GetInfoRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -64,6 +171,8 @@ type RunnerInfo struct {
 	RunnerVersion   string                 `protobuf:"bytes,3,opt,name=runner_version,json=runnerVersion,proto3" json:"runner_version,omitempty"`
 	ProtocolVersion string                 `protobuf:"bytes,4,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
 	Capabilities    *RunnerCapabilities    `protobuf:"bytes,5,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
+	Status          RunnerStatus           `protobuf:"varint,6,opt,name=status,proto3,enum=zeroyaml.runner.v1.RunnerStatus" json:"status,omitempty"`
+	AcceptingWork   bool                   `protobuf:"varint,7,opt,name=accepting_work,json=acceptingWork,proto3" json:"accepting_work,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -133,15 +242,29 @@ func (x *RunnerInfo) GetCapabilities() *RunnerCapabilities {
 	return nil
 }
 
+func (x *RunnerInfo) GetStatus() RunnerStatus {
+	if x != nil {
+		return x.Status
+	}
+	return RunnerStatus_RUNNER_STATUS_UNSPECIFIED
+}
+
+func (x *RunnerInfo) GetAcceptingWork() bool {
+	if x != nil {
+		return x.AcceptingWork
+	}
+	return false
+}
+
 type RunnerCapabilities struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	OperatingSystem   string                 `protobuf:"bytes,1,opt,name=operating_system,json=operatingSystem,proto3" json:"operating_system,omitempty"`
-	Architecture      string                 `protobuf:"bytes,2,opt,name=architecture,proto3" json:"architecture,omitempty"`
-	DockerAvailable   bool                   `protobuf:"varint,3,opt,name=docker_available,json=dockerAvailable,proto3" json:"docker_available,omitempty"`
-	SupportedExecutor []string               `protobuf:"bytes,4,rep,name=supported_executor,json=supportedExecutor,proto3" json:"supported_executor,omitempty"`
-	Labels            map[string]string      `protobuf:"bytes,5,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	OperatingSystem    string                 `protobuf:"bytes,1,opt,name=operating_system,json=operatingSystem,proto3" json:"operating_system,omitempty"`
+	Architecture       string                 `protobuf:"bytes,2,opt,name=architecture,proto3" json:"architecture,omitempty"`
+	DockerAvailable    bool                   `protobuf:"varint,3,opt,name=docker_available,json=dockerAvailable,proto3" json:"docker_available,omitempty"`
+	SupportedExecutors []string               `protobuf:"bytes,4,rep,name=supported_executors,json=supportedExecutors,proto3" json:"supported_executors,omitempty"`
+	Labels             map[string]string      `protobuf:"bytes,5,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *RunnerCapabilities) Reset() {
@@ -195,9 +318,9 @@ func (x *RunnerCapabilities) GetDockerAvailable() bool {
 	return false
 }
 
-func (x *RunnerCapabilities) GetSupportedExecutor() []string {
+func (x *RunnerCapabilities) GetSupportedExecutors() []string {
 	if x != nil {
-		return x.SupportedExecutor
+		return x.SupportedExecutors
 	}
 	return nil
 }
@@ -209,6 +332,110 @@ func (x *RunnerCapabilities) GetLabels() map[string]string {
 	return nil
 }
 
+type RegisterRunnerRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Runner        *RunnerInfo            `protobuf:"bytes,1,opt,name=runner,proto3" json:"runner,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterRunnerRequest) Reset() {
+	*x = RegisterRunnerRequest{}
+	mi := &file_runner_v1_runner_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterRunnerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterRunnerRequest) ProtoMessage() {}
+
+func (x *RegisterRunnerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runner_v1_runner_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterRunnerRequest.ProtoReflect.Descriptor instead.
+func (*RegisterRunnerRequest) Descriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RegisterRunnerRequest) GetRunner() *RunnerInfo {
+	if x != nil {
+		return x.Runner
+	}
+	return nil
+}
+
+type RegisterRunnerResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Result         RegistrationResult     `protobuf:"varint,1,opt,name=result,proto3,enum=zeroyaml.runner.v1.RegistrationResult" json:"result,omitempty"`
+	RegistrationId string                 `protobuf:"bytes,2,opt,name=registration_id,json=registrationId,proto3" json:"registration_id,omitempty"`
+	Message        string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *RegisterRunnerResponse) Reset() {
+	*x = RegisterRunnerResponse{}
+	mi := &file_runner_v1_runner_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterRunnerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterRunnerResponse) ProtoMessage() {}
+
+func (x *RegisterRunnerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runner_v1_runner_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterRunnerResponse.ProtoReflect.Descriptor instead.
+func (*RegisterRunnerResponse) Descriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *RegisterRunnerResponse) GetResult() RegistrationResult {
+	if x != nil {
+		return x.Result
+	}
+	return RegistrationResult_REGISTRATION_RESULT_UNSPECIFIED
+}
+
+func (x *RegisterRunnerResponse) GetRegistrationId() string {
+	if x != nil {
+		return x.RegistrationId
+	}
+	return ""
+}
+
+func (x *RegisterRunnerResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 type PingRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
@@ -218,7 +445,7 @@ type PingRequest struct {
 
 func (x *PingRequest) Reset() {
 	*x = PingRequest{}
-	mi := &file_runner_v1_runner_proto_msgTypes[3]
+	mi := &file_runner_v1_runner_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -230,7 +457,7 @@ func (x *PingRequest) String() string {
 func (*PingRequest) ProtoMessage() {}
 
 func (x *PingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runner_v1_runner_proto_msgTypes[3]
+	mi := &file_runner_v1_runner_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -243,7 +470,7 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
 func (*PingRequest) Descriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{3}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *PingRequest) GetMessage() string {
@@ -263,7 +490,7 @@ type PingResponse struct {
 
 func (x *PingResponse) Reset() {
 	*x = PingResponse{}
-	mi := &file_runner_v1_runner_proto_msgTypes[4]
+	mi := &file_runner_v1_runner_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -275,7 +502,7 @@ func (x *PingResponse) String() string {
 func (*PingResponse) ProtoMessage() {}
 
 func (x *PingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runner_v1_runner_proto_msgTypes[4]
+	mi := &file_runner_v1_runner_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -288,7 +515,7 @@ func (x *PingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
 func (*PingResponse) Descriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{4}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *PingResponse) GetMessage() string {
@@ -310,7 +537,7 @@ var File_runner_v1_runner_proto protoreflect.FileDescriptor
 const file_runner_v1_runner_proto_rawDesc = "" +
 	"\n" +
 	"\x16runner/v1/runner.proto\x12\x12zeroyaml.runner.v1\"\x10\n" +
-	"\x0eGetInfoRequest\"\xe8\x01\n" +
+	"\x0eGetInfoRequest\"\xc9\x02\n" +
 	"\n" +
 	"RunnerInfo\x12\x1b\n" +
 	"\trunner_id\x18\x01 \x01(\tR\brunnerId\x12\x1f\n" +
@@ -318,24 +545,45 @@ const file_runner_v1_runner_proto_rawDesc = "" +
 	"instanceId\x12%\n" +
 	"\x0erunner_version\x18\x03 \x01(\tR\rrunnerVersion\x12)\n" +
 	"\x10protocol_version\x18\x04 \x01(\tR\x0fprotocolVersion\x12J\n" +
-	"\fcapabilities\x18\x05 \x01(\v2&.zeroyaml.runner.v1.RunnerCapabilitiesR\fcapabilities\"\xc4\x02\n" +
+	"\fcapabilities\x18\x05 \x01(\v2&.zeroyaml.runner.v1.RunnerCapabilitiesR\fcapabilities\x128\n" +
+	"\x06status\x18\x06 \x01(\x0e2 .zeroyaml.runner.v1.RunnerStatusR\x06status\x12%\n" +
+	"\x0eaccepting_work\x18\a \x01(\bR\racceptingWork\"\xc6\x02\n" +
 	"\x12RunnerCapabilities\x12)\n" +
 	"\x10operating_system\x18\x01 \x01(\tR\x0foperatingSystem\x12\"\n" +
 	"\farchitecture\x18\x02 \x01(\tR\farchitecture\x12)\n" +
-	"\x10docker_available\x18\x03 \x01(\bR\x0fdockerAvailable\x12-\n" +
-	"\x12supported_executor\x18\x04 \x03(\tR\x11supportedExecutor\x12J\n" +
+	"\x10docker_available\x18\x03 \x01(\bR\x0fdockerAvailable\x12/\n" +
+	"\x13supported_executors\x18\x04 \x03(\tR\x12supportedExecutors\x12J\n" +
 	"\x06labels\x18\x05 \x03(\v22.zeroyaml.runner.v1.RunnerCapabilities.LabelsEntryR\x06labels\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"'\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"O\n" +
+	"\x15RegisterRunnerRequest\x126\n" +
+	"\x06runner\x18\x01 \x01(\v2\x1e.zeroyaml.runner.v1.RunnerInfoR\x06runner\"\x9b\x01\n" +
+	"\x16RegisterRunnerResponse\x12>\n" +
+	"\x06result\x18\x01 \x01(\x0e2&.zeroyaml.runner.v1.RegistrationResultR\x06result\x12'\n" +
+	"\x0fregistration_id\x18\x02 \x01(\tR\x0eregistrationId\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"'\n" +
 	"\vPingRequest\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"O\n" +
 	"\fPingResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12%\n" +
-	"\x0erunner_version\x18\x02 \x01(\tR\rrunnerVersion2\xa9\x01\n" +
+	"\x0erunner_version\x18\x02 \x01(\tR\rrunnerVersion*\x9d\x01\n" +
+	"\fRunnerStatus\x12\x1d\n" +
+	"\x19RUNNER_STATUS_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16RUNNER_STATUS_STARTING\x10\x01\x12\x17\n" +
+	"\x13RUNNER_STATUS_READY\x10\x02\x12\x1a\n" +
+	"\x16RUNNER_STATUS_DRAINING\x10\x03\x12\x1d\n" +
+	"\x19RUNNER_STATUS_UNAVAILABLE\x10\x04*\x9d\x01\n" +
+	"\x12RegistrationResult\x12#\n" +
+	"\x1fREGISTRATION_RESULT_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15REGISTRATION_ACCEPTED\x10\x01\x12#\n" +
+	"\x1fREGISTRATION_ALREADY_REGISTERED\x10\x02\x12\"\n" +
+	"\x1eREGISTRATION_IDENTITY_CONFLICT\x10\x032\xa9\x01\n" +
 	"\rRunnerService\x12I\n" +
 	"\x04Ping\x12\x1f.zeroyaml.runner.v1.PingRequest\x1a .zeroyaml.runner.v1.PingResponse\x12M\n" +
-	"\aGetInfo\x12\".zeroyaml.runner.v1.GetInfoRequest\x1a\x1e.zeroyaml.runner.v1.RunnerInfoBn\n" +
+	"\aGetInfo\x12\".zeroyaml.runner.v1.GetInfoRequest\x1a\x1e.zeroyaml.runner.v1.RunnerInfo2~\n" +
+	"\x19RunnerRegistrationService\x12a\n" +
+	"\bRegister\x12).zeroyaml.runner.v1.RegisterRunnerRequest\x1a*.zeroyaml.runner.v1.RegisterRunnerResponseBn\n" +
 	"\x1fio.zeroyaml.contracts.runner.v1B\vRunnerProtoP\x01Z<github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1;runnerv1b\x06proto3"
 
 var (
@@ -350,27 +598,37 @@ func file_runner_v1_runner_proto_rawDescGZIP() []byte {
 	return file_runner_v1_runner_proto_rawDescData
 }
 
-var file_runner_v1_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_runner_v1_runner_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_runner_v1_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_runner_v1_runner_proto_goTypes = []any{
-	(*GetInfoRequest)(nil),     // 0: zeroyaml.runner.v1.GetInfoRequest
-	(*RunnerInfo)(nil),         // 1: zeroyaml.runner.v1.RunnerInfo
-	(*RunnerCapabilities)(nil), // 2: zeroyaml.runner.v1.RunnerCapabilities
-	(*PingRequest)(nil),        // 3: zeroyaml.runner.v1.PingRequest
-	(*PingResponse)(nil),       // 4: zeroyaml.runner.v1.PingResponse
-	nil,                        // 5: zeroyaml.runner.v1.RunnerCapabilities.LabelsEntry
+	(RunnerStatus)(0),              // 0: zeroyaml.runner.v1.RunnerStatus
+	(RegistrationResult)(0),        // 1: zeroyaml.runner.v1.RegistrationResult
+	(*GetInfoRequest)(nil),         // 2: zeroyaml.runner.v1.GetInfoRequest
+	(*RunnerInfo)(nil),             // 3: zeroyaml.runner.v1.RunnerInfo
+	(*RunnerCapabilities)(nil),     // 4: zeroyaml.runner.v1.RunnerCapabilities
+	(*RegisterRunnerRequest)(nil),  // 5: zeroyaml.runner.v1.RegisterRunnerRequest
+	(*RegisterRunnerResponse)(nil), // 6: zeroyaml.runner.v1.RegisterRunnerResponse
+	(*PingRequest)(nil),            // 7: zeroyaml.runner.v1.PingRequest
+	(*PingResponse)(nil),           // 8: zeroyaml.runner.v1.PingResponse
+	nil,                            // 9: zeroyaml.runner.v1.RunnerCapabilities.LabelsEntry
 }
 var file_runner_v1_runner_proto_depIdxs = []int32{
-	2, // 0: zeroyaml.runner.v1.RunnerInfo.capabilities:type_name -> zeroyaml.runner.v1.RunnerCapabilities
-	5, // 1: zeroyaml.runner.v1.RunnerCapabilities.labels:type_name -> zeroyaml.runner.v1.RunnerCapabilities.LabelsEntry
-	3, // 2: zeroyaml.runner.v1.RunnerService.Ping:input_type -> zeroyaml.runner.v1.PingRequest
-	0, // 3: zeroyaml.runner.v1.RunnerService.GetInfo:input_type -> zeroyaml.runner.v1.GetInfoRequest
-	4, // 4: zeroyaml.runner.v1.RunnerService.Ping:output_type -> zeroyaml.runner.v1.PingResponse
-	1, // 5: zeroyaml.runner.v1.RunnerService.GetInfo:output_type -> zeroyaml.runner.v1.RunnerInfo
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	4, // 0: zeroyaml.runner.v1.RunnerInfo.capabilities:type_name -> zeroyaml.runner.v1.RunnerCapabilities
+	0, // 1: zeroyaml.runner.v1.RunnerInfo.status:type_name -> zeroyaml.runner.v1.RunnerStatus
+	9, // 2: zeroyaml.runner.v1.RunnerCapabilities.labels:type_name -> zeroyaml.runner.v1.RunnerCapabilities.LabelsEntry
+	3, // 3: zeroyaml.runner.v1.RegisterRunnerRequest.runner:type_name -> zeroyaml.runner.v1.RunnerInfo
+	1, // 4: zeroyaml.runner.v1.RegisterRunnerResponse.result:type_name -> zeroyaml.runner.v1.RegistrationResult
+	7, // 5: zeroyaml.runner.v1.RunnerService.Ping:input_type -> zeroyaml.runner.v1.PingRequest
+	2, // 6: zeroyaml.runner.v1.RunnerService.GetInfo:input_type -> zeroyaml.runner.v1.GetInfoRequest
+	5, // 7: zeroyaml.runner.v1.RunnerRegistrationService.Register:input_type -> zeroyaml.runner.v1.RegisterRunnerRequest
+	8, // 8: zeroyaml.runner.v1.RunnerService.Ping:output_type -> zeroyaml.runner.v1.PingResponse
+	3, // 9: zeroyaml.runner.v1.RunnerService.GetInfo:output_type -> zeroyaml.runner.v1.RunnerInfo
+	6, // 10: zeroyaml.runner.v1.RunnerRegistrationService.Register:output_type -> zeroyaml.runner.v1.RegisterRunnerResponse
+	8, // [8:11] is the sub-list for method output_type
+	5, // [5:8] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_runner_v1_runner_proto_init() }
@@ -383,13 +641,14 @@ func file_runner_v1_runner_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runner_v1_runner_proto_rawDesc), len(file_runner_v1_runner_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   6,
+			NumEnums:      2,
+			NumMessages:   8,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_runner_v1_runner_proto_goTypes,
 		DependencyIndexes: file_runner_v1_runner_proto_depIdxs,
+		EnumInfos:         file_runner_v1_runner_proto_enumTypes,
 		MessageInfos:      file_runner_v1_runner_proto_msgTypes,
 	}.Build()
 	File_runner_v1_runner_proto = out.File

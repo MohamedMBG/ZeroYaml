@@ -80,3 +80,24 @@ func TestDefaultCapabilitiesUseRuntimeInformationWithoutDockerSupport(t *testing
 		t.Errorf("Labels = %v, want an empty map", capabilities.Labels)
 	}
 }
+
+func TestNewRejectsMissingIdentityValues(t *testing.T) {
+	tests := []struct {
+		name            string
+		runnerID        string
+		runnerVersion   string
+		protocolVersion string
+	}{
+		{name: "runner ID", runnerVersion: "0.1.0", protocolVersion: ProtocolVersion},
+		{name: "runner version", runnerID: "runner-dev-01", protocolVersion: ProtocolVersion},
+		{name: "protocol version", runnerID: "runner-dev-01", runnerVersion: "0.1.0"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := New(test.runnerID, test.runnerVersion, test.protocolVersion, DefaultCapabilities()); err == nil {
+				t.Fatal("New() returned no error")
+			}
+		})
+	}
+}

@@ -157,3 +157,114 @@ var RunnerService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "runner/v1/runner.proto",
 }
+
+const (
+	RunnerRegistrationService_Register_FullMethodName = "/zeroyaml.runner.v1.RunnerRegistrationService/Register"
+)
+
+// RunnerRegistrationServiceClient is the client API for RunnerRegistrationService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// RunnerRegistrationService is implemented by the Control Plane. The Runner
+// uses it to announce a process instance; persistence and lease management are
+// intentionally outside this first contract.
+type RunnerRegistrationServiceClient interface {
+	Register(ctx context.Context, in *RegisterRunnerRequest, opts ...grpc.CallOption) (*RegisterRunnerResponse, error)
+}
+
+type runnerRegistrationServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewRunnerRegistrationServiceClient(cc grpc.ClientConnInterface) RunnerRegistrationServiceClient {
+	return &runnerRegistrationServiceClient{cc}
+}
+
+func (c *runnerRegistrationServiceClient) Register(ctx context.Context, in *RegisterRunnerRequest, opts ...grpc.CallOption) (*RegisterRunnerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RegisterRunnerResponse)
+	err := c.cc.Invoke(ctx, RunnerRegistrationService_Register_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// RunnerRegistrationServiceServer is the server API for RunnerRegistrationService service.
+// All implementations must embed UnimplementedRunnerRegistrationServiceServer
+// for forward compatibility.
+//
+// RunnerRegistrationService is implemented by the Control Plane. The Runner
+// uses it to announce a process instance; persistence and lease management are
+// intentionally outside this first contract.
+type RunnerRegistrationServiceServer interface {
+	Register(context.Context, *RegisterRunnerRequest) (*RegisterRunnerResponse, error)
+	mustEmbedUnimplementedRunnerRegistrationServiceServer()
+}
+
+// UnimplementedRunnerRegistrationServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedRunnerRegistrationServiceServer struct{}
+
+func (UnimplementedRunnerRegistrationServiceServer) Register(context.Context, *RegisterRunnerRequest) (*RegisterRunnerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Register not implemented")
+}
+func (UnimplementedRunnerRegistrationServiceServer) mustEmbedUnimplementedRunnerRegistrationServiceServer() {
+}
+func (UnimplementedRunnerRegistrationServiceServer) testEmbeddedByValue() {}
+
+// UnsafeRunnerRegistrationServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to RunnerRegistrationServiceServer will
+// result in compilation errors.
+type UnsafeRunnerRegistrationServiceServer interface {
+	mustEmbedUnimplementedRunnerRegistrationServiceServer()
+}
+
+func RegisterRunnerRegistrationServiceServer(s grpc.ServiceRegistrar, srv RunnerRegistrationServiceServer) {
+	// If the following call panics, it indicates UnimplementedRunnerRegistrationServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&RunnerRegistrationService_ServiceDesc, srv)
+}
+
+func _RunnerRegistrationService_Register_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterRunnerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RunnerRegistrationServiceServer).Register(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RunnerRegistrationService_Register_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RunnerRegistrationServiceServer).Register(ctx, req.(*RegisterRunnerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// RunnerRegistrationService_ServiceDesc is the grpc.ServiceDesc for RunnerRegistrationService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var RunnerRegistrationService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "zeroyaml.runner.v1.RunnerRegistrationService",
+	HandlerType: (*RunnerRegistrationServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Register",
+			Handler:    _RunnerRegistrationService_Register_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "runner/v1/runner.proto",
+}

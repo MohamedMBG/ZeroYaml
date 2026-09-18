@@ -12,6 +12,7 @@ import (
 	runnerv1 "github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1"
 	"github.com/MohamedMBG/ZeroYaml/runner/internal/grpcserver"
 	"github.com/MohamedMBG/ZeroYaml/runner/internal/runnerconfig"
+	"github.com/MohamedMBG/ZeroYaml/runner/internal/runneridentity"
 	"github.com/MohamedMBG/ZeroYaml/runner/internal/serverlifecycle"
 	"google.golang.org/grpc"
 )
@@ -31,6 +32,16 @@ func run() error {
 		return fmt.Errorf("invalid runner configuration: %w", err)
 	}
 
+	identity, err := runneridentity.New(
+		cfg.RunnerID,
+		cfg.Version,
+		runneridentity.ProtocolVersion,
+		runneridentity.DefaultCapabilities(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create runner identity: %w", err)
+	}
+
 	// SIGINT covers local development and SIGTERM covers container and service
 	// managers. The signal handler is installed before the listener is opened so
 	// that a signal arriving during startup still triggers an ordered shutdown.
@@ -46,14 +57,16 @@ func run() error {
 
 	runnerv1.RegisterRunnerServiceServer(
 		server,
-		grpcserver.New(cfg.Version),
+		grpcserver.New(identity),
 	)
 
 	log.Printf(
-		"ZeroYAML Runner gRPC server listening on %s - runner %s - version %s",
+		"ZeroYAML Runner gRPC server listening on %s - runner %s - instance %s - version %s - protocol %s",
 		cfg.GRPCAddress,
 		cfg.RunnerID,
+		identity.InstanceID,
 		cfg.Version,
+		identity.ProtocolVersion,
 	)
 
 	// ServeUntilShutdown owns the listener from this point and closes it on every

@@ -5,6 +5,18 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"strings"
+)
+
+const ProtocolVersion = "runner.v1"
+
+type Status string
+
+const (
+	StatusStarting    Status = "starting"
+	StatusReady       Status = "ready"
+	StatusDraining    Status = "draining"
+	StatusUnavailable Status = "unavailable"
 )
 
 type Capabilities struct {
@@ -21,6 +33,8 @@ type Identity struct {
 	RunnerVersion   string
 	ProtocolVersion string
 	Capabilities    Capabilities
+	Status          Status
+	AcceptingWork   bool
 }
 
 // DefaultCapabilities reports the capabilities known without probing external
@@ -38,6 +52,16 @@ func DefaultCapabilities() Capabilities {
 // New creates the identity held by one Runner process. Call it once during
 // startup and pass the returned value to components that report Runner state.
 func New(runnerID, runnerVersion, protocolVersion string, capabilities Capabilities) (Identity, error) {
+	if strings.TrimSpace(runnerID) == "" {
+		return Identity{}, fmt.Errorf("runner ID must not be empty")
+	}
+	if strings.TrimSpace(runnerVersion) == "" {
+		return Identity{}, fmt.Errorf("runner version must not be empty")
+	}
+	if strings.TrimSpace(protocolVersion) == "" {
+		return Identity{}, fmt.Errorf("protocol version must not be empty")
+	}
+
 	instanceID, err := newInstanceID()
 	if err != nil {
 		return Identity{}, fmt.Errorf("generate Runner instance ID: %w", err)
@@ -49,6 +73,8 @@ func New(runnerID, runnerVersion, protocolVersion string, capabilities Capabilit
 		RunnerVersion:   runnerVersion,
 		ProtocolVersion: protocolVersion,
 		Capabilities:    capabilities,
+		Status:          StatusUnavailable,
+		AcceptingWork:   false,
 	}, nil
 }
 
