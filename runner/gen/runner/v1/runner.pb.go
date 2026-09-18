@@ -21,6 +21,194 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type GetInfoRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetInfoRequest) Reset() {
+	*x = GetInfoRequest{}
+	mi := &file_runner_v1_runner_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetInfoRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetInfoRequest) ProtoMessage() {}
+
+func (x *GetInfoRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runner_v1_runner_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetInfoRequest.ProtoReflect.Descriptor instead.
+func (*GetInfoRequest) Descriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{0}
+}
+
+type RunnerInfo struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	RunnerId        string                 `protobuf:"bytes,1,opt,name=runner_id,json=runnerId,proto3" json:"runner_id,omitempty"`
+	InstanceId      string                 `protobuf:"bytes,2,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	RunnerVersion   string                 `protobuf:"bytes,3,opt,name=runner_version,json=runnerVersion,proto3" json:"runner_version,omitempty"`
+	ProtocolVersion string                 `protobuf:"bytes,4,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	Capabilities    *RunnerCapabilities    `protobuf:"bytes,5,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *RunnerInfo) Reset() {
+	*x = RunnerInfo{}
+	mi := &file_runner_v1_runner_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunnerInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunnerInfo) ProtoMessage() {}
+
+func (x *RunnerInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_runner_v1_runner_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunnerInfo.ProtoReflect.Descriptor instead.
+func (*RunnerInfo) Descriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *RunnerInfo) GetRunnerId() string {
+	if x != nil {
+		return x.RunnerId
+	}
+	return ""
+}
+
+func (x *RunnerInfo) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+func (x *RunnerInfo) GetRunnerVersion() string {
+	if x != nil {
+		return x.RunnerVersion
+	}
+	return ""
+}
+
+func (x *RunnerInfo) GetProtocolVersion() string {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return ""
+}
+
+func (x *RunnerInfo) GetCapabilities() *RunnerCapabilities {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
+type RunnerCapabilities struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	OperatingSystem   string                 `protobuf:"bytes,1,opt,name=operating_system,json=operatingSystem,proto3" json:"operating_system,omitempty"`
+	Architecture      string                 `protobuf:"bytes,2,opt,name=architecture,proto3" json:"architecture,omitempty"`
+	DockerAvailable   bool                   `protobuf:"varint,3,opt,name=docker_available,json=dockerAvailable,proto3" json:"docker_available,omitempty"`
+	SupportedExecutor []string               `protobuf:"bytes,4,rep,name=supported_executor,json=supportedExecutor,proto3" json:"supported_executor,omitempty"`
+	Labels            map[string]string      `protobuf:"bytes,5,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *RunnerCapabilities) Reset() {
+	*x = RunnerCapabilities{}
+	mi := &file_runner_v1_runner_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunnerCapabilities) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunnerCapabilities) ProtoMessage() {}
+
+func (x *RunnerCapabilities) ProtoReflect() protoreflect.Message {
+	mi := &file_runner_v1_runner_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunnerCapabilities.ProtoReflect.Descriptor instead.
+func (*RunnerCapabilities) Descriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RunnerCapabilities) GetOperatingSystem() string {
+	if x != nil {
+		return x.OperatingSystem
+	}
+	return ""
+}
+
+func (x *RunnerCapabilities) GetArchitecture() string {
+	if x != nil {
+		return x.Architecture
+	}
+	return ""
+}
+
+func (x *RunnerCapabilities) GetDockerAvailable() bool {
+	if x != nil {
+		return x.DockerAvailable
+	}
+	return false
+}
+
+func (x *RunnerCapabilities) GetSupportedExecutor() []string {
+	if x != nil {
+		return x.SupportedExecutor
+	}
+	return nil
+}
+
+func (x *RunnerCapabilities) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
 type PingRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
@@ -30,7 +218,7 @@ type PingRequest struct {
 
 func (x *PingRequest) Reset() {
 	*x = PingRequest{}
-	mi := &file_runner_v1_runner_proto_msgTypes[0]
+	mi := &file_runner_v1_runner_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -42,7 +230,7 @@ func (x *PingRequest) String() string {
 func (*PingRequest) ProtoMessage() {}
 
 func (x *PingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runner_v1_runner_proto_msgTypes[0]
+	mi := &file_runner_v1_runner_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -55,7 +243,7 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
 func (*PingRequest) Descriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{0}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *PingRequest) GetMessage() string {
@@ -75,7 +263,7 @@ type PingResponse struct {
 
 func (x *PingResponse) Reset() {
 	*x = PingResponse{}
-	mi := &file_runner_v1_runner_proto_msgTypes[1]
+	mi := &file_runner_v1_runner_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -87,7 +275,7 @@ func (x *PingResponse) String() string {
 func (*PingResponse) ProtoMessage() {}
 
 func (x *PingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runner_v1_runner_proto_msgTypes[1]
+	mi := &file_runner_v1_runner_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -100,7 +288,7 @@ func (x *PingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
 func (*PingResponse) Descriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{1}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *PingResponse) GetMessage() string {
@@ -121,14 +309,33 @@ var File_runner_v1_runner_proto protoreflect.FileDescriptor
 
 const file_runner_v1_runner_proto_rawDesc = "" +
 	"\n" +
-	"\x16runner/v1/runner.proto\x12\x12zeroyaml.runner.v1\"'\n" +
+	"\x16runner/v1/runner.proto\x12\x12zeroyaml.runner.v1\"\x10\n" +
+	"\x0eGetInfoRequest\"\xe8\x01\n" +
+	"\n" +
+	"RunnerInfo\x12\x1b\n" +
+	"\trunner_id\x18\x01 \x01(\tR\brunnerId\x12\x1f\n" +
+	"\vinstance_id\x18\x02 \x01(\tR\n" +
+	"instanceId\x12%\n" +
+	"\x0erunner_version\x18\x03 \x01(\tR\rrunnerVersion\x12)\n" +
+	"\x10protocol_version\x18\x04 \x01(\tR\x0fprotocolVersion\x12J\n" +
+	"\fcapabilities\x18\x05 \x01(\v2&.zeroyaml.runner.v1.RunnerCapabilitiesR\fcapabilities\"\xc4\x02\n" +
+	"\x12RunnerCapabilities\x12)\n" +
+	"\x10operating_system\x18\x01 \x01(\tR\x0foperatingSystem\x12\"\n" +
+	"\farchitecture\x18\x02 \x01(\tR\farchitecture\x12)\n" +
+	"\x10docker_available\x18\x03 \x01(\bR\x0fdockerAvailable\x12-\n" +
+	"\x12supported_executor\x18\x04 \x03(\tR\x11supportedExecutor\x12J\n" +
+	"\x06labels\x18\x05 \x03(\v22.zeroyaml.runner.v1.RunnerCapabilities.LabelsEntryR\x06labels\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"'\n" +
 	"\vPingRequest\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"O\n" +
 	"\fPingResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12%\n" +
-	"\x0erunner_version\x18\x02 \x01(\tR\rrunnerVersion2Z\n" +
+	"\x0erunner_version\x18\x02 \x01(\tR\rrunnerVersion2\xa9\x01\n" +
 	"\rRunnerService\x12I\n" +
-	"\x04Ping\x12\x1f.zeroyaml.runner.v1.PingRequest\x1a .zeroyaml.runner.v1.PingResponseBn\n" +
+	"\x04Ping\x12\x1f.zeroyaml.runner.v1.PingRequest\x1a .zeroyaml.runner.v1.PingResponse\x12M\n" +
+	"\aGetInfo\x12\".zeroyaml.runner.v1.GetInfoRequest\x1a\x1e.zeroyaml.runner.v1.RunnerInfoBn\n" +
 	"\x1fio.zeroyaml.contracts.runner.v1B\vRunnerProtoP\x01Z<github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1;runnerv1b\x06proto3"
 
 var (
@@ -143,19 +350,27 @@ func file_runner_v1_runner_proto_rawDescGZIP() []byte {
 	return file_runner_v1_runner_proto_rawDescData
 }
 
-var file_runner_v1_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_runner_v1_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_runner_v1_runner_proto_goTypes = []any{
-	(*PingRequest)(nil),  // 0: zeroyaml.runner.v1.PingRequest
-	(*PingResponse)(nil), // 1: zeroyaml.runner.v1.PingResponse
+	(*GetInfoRequest)(nil),     // 0: zeroyaml.runner.v1.GetInfoRequest
+	(*RunnerInfo)(nil),         // 1: zeroyaml.runner.v1.RunnerInfo
+	(*RunnerCapabilities)(nil), // 2: zeroyaml.runner.v1.RunnerCapabilities
+	(*PingRequest)(nil),        // 3: zeroyaml.runner.v1.PingRequest
+	(*PingResponse)(nil),       // 4: zeroyaml.runner.v1.PingResponse
+	nil,                        // 5: zeroyaml.runner.v1.RunnerCapabilities.LabelsEntry
 }
 var file_runner_v1_runner_proto_depIdxs = []int32{
-	0, // 0: zeroyaml.runner.v1.RunnerService.Ping:input_type -> zeroyaml.runner.v1.PingRequest
-	1, // 1: zeroyaml.runner.v1.RunnerService.Ping:output_type -> zeroyaml.runner.v1.PingResponse
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	2, // 0: zeroyaml.runner.v1.RunnerInfo.capabilities:type_name -> zeroyaml.runner.v1.RunnerCapabilities
+	5, // 1: zeroyaml.runner.v1.RunnerCapabilities.labels:type_name -> zeroyaml.runner.v1.RunnerCapabilities.LabelsEntry
+	3, // 2: zeroyaml.runner.v1.RunnerService.Ping:input_type -> zeroyaml.runner.v1.PingRequest
+	0, // 3: zeroyaml.runner.v1.RunnerService.GetInfo:input_type -> zeroyaml.runner.v1.GetInfoRequest
+	4, // 4: zeroyaml.runner.v1.RunnerService.Ping:output_type -> zeroyaml.runner.v1.PingResponse
+	1, // 5: zeroyaml.runner.v1.RunnerService.GetInfo:output_type -> zeroyaml.runner.v1.RunnerInfo
+	4, // [4:6] is the sub-list for method output_type
+	2, // [2:4] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_runner_v1_runner_proto_init() }
@@ -169,7 +384,7 @@ func file_runner_v1_runner_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runner_v1_runner_proto_rawDesc), len(file_runner_v1_runner_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

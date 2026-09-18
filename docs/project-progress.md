@@ -1,6 +1,6 @@
 # ZeroYAML Project Progress
 
-Last updated: 2026-09-17
+Last updated: 2026-09-18
 
 Current phase: 1
 
@@ -25,6 +25,7 @@ Phase 1 — Foundation is in progress and is the only active delivery phase. The
 ## In progress
 
 - Add bounded graceful shutdown to the Runner gRPC server for issue #7.
+- Define the Runner identity and registration contract for issue #9. The local Runner work includes a stable configured `runner_id` and a cryptographically random `instance_id` that startup wiring will create once per process; registration, heartbeat, and availability behavior remain pending.
 - Implement the next Control Plane to Runner integration steps: registration, heartbeat, and job dispatch.
 - Expand automated coverage as features land.
 

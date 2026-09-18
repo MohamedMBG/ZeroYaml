@@ -10,6 +10,25 @@ option go_package = "github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1;runnerv
 
 service RunnerService {
   rpc Ping(PingRequest) returns (PingResponse);
+  rpc GetInfo(GetInfoRequest) returns (RunnerInfo);
+}
+
+message GetInfoRequest {}
+
+message RunnerInfo {
+  string runner_id = 1;
+  string instance_id = 2;
+  string runner_version = 3;
+  string protocol_version = 4;
+  RunnerCapabilities capabilities = 5;
+}
+
+message RunnerCapabilities {
+  string operating_system = 1;
+  string architecture = 2;
+  bool docker_available = 3;
+  repeated string supported_executor = 4;
+  map<string , string> labels = 5;
 }
 
 message PingRequest {

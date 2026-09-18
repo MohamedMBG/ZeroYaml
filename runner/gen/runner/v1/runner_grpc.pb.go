@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RunnerService_Ping_FullMethodName = "/zeroyaml.runner.v1.RunnerService/Ping"
+	RunnerService_Ping_FullMethodName    = "/zeroyaml.runner.v1.RunnerService/Ping"
+	RunnerService_GetInfo_FullMethodName = "/zeroyaml.runner.v1.RunnerService/GetInfo"
 )
 
 // RunnerServiceClient is the client API for RunnerService service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RunnerServiceClient interface {
 	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error)
+	GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*RunnerInfo, error)
 }
 
 type runnerServiceClient struct {
@@ -47,11 +49,22 @@ func (c *runnerServiceClient) Ping(ctx context.Context, in *PingRequest, opts ..
 	return out, nil
 }
 
+func (c *runnerServiceClient) GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*RunnerInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunnerInfo)
+	err := c.cc.Invoke(ctx, RunnerService_GetInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RunnerServiceServer is the server API for RunnerService service.
 // All implementations must embed UnimplementedRunnerServiceServer
 // for forward compatibility.
 type RunnerServiceServer interface {
 	Ping(context.Context, *PingRequest) (*PingResponse, error)
+	GetInfo(context.Context, *GetInfoRequest) (*RunnerInfo, error)
 	mustEmbedUnimplementedRunnerServiceServer()
 }
 
@@ -64,6 +77,9 @@ type UnimplementedRunnerServiceServer struct{}
 
 func (UnimplementedRunnerServiceServer) Ping(context.Context, *PingRequest) (*PingResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Ping not implemented")
+}
+func (UnimplementedRunnerServiceServer) GetInfo(context.Context, *GetInfoRequest) (*RunnerInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetInfo not implemented")
 }
 func (UnimplementedRunnerServiceServer) mustEmbedUnimplementedRunnerServiceServer() {}
 func (UnimplementedRunnerServiceServer) testEmbeddedByValue()                       {}
@@ -104,6 +120,24 @@ func _RunnerService_Ping_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RunnerService_GetInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RunnerServiceServer).GetInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RunnerService_GetInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RunnerServiceServer).GetInfo(ctx, req.(*GetInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RunnerService_ServiceDesc is the grpc.ServiceDesc for RunnerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -114,6 +148,10 @@ var RunnerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Ping",
 			Handler:    _RunnerService_Ping_Handler,
+		},
+		{
+			MethodName: "GetInfo",
+			Handler:    _RunnerService_GetInfo_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
