@@ -10,6 +10,59 @@ option go_package = "github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1;runnerv
 
 service RunnerService {
   rpc Ping(PingRequest) returns (PingResponse);
+  rpc GetInfo(GetInfoRequest) returns (RunnerInfo);
+}
+
+// RunnerRegistrationService is implemented by the Control Plane. The Runner
+// uses it to announce a process instance; persistence and lease management are
+// intentionally outside this first contract.
+service RunnerRegistrationService {
+  rpc Register(RegisterRunnerRequest) returns (RegisterRunnerResponse);
+}
+
+message GetInfoRequest {}
+
+message RunnerInfo {
+  string runner_id = 1;
+  string instance_id = 2;
+  string runner_version = 3;
+  string protocol_version = 4;
+  RunnerCapabilities capabilities = 5;
+  RunnerStatus status = 6;
+  bool accepting_work = 7;
+}
+
+message RunnerCapabilities {
+  string operating_system = 1;
+  string architecture = 2;
+  bool docker_available = 3;
+  repeated string supported_executors = 4;
+  map<string, string> labels = 5;
+}
+
+message RegisterRunnerRequest {
+  RunnerInfo runner = 1;
+}
+
+message RegisterRunnerResponse {
+  RegistrationResult result = 1;
+  string registration_id = 2;
+  string message = 3;
+}
+
+enum RunnerStatus {
+  RUNNER_STATUS_UNSPECIFIED = 0;
+  RUNNER_STATUS_STARTING = 1;
+  RUNNER_STATUS_READY = 2;
+  RUNNER_STATUS_DRAINING = 3;
+  RUNNER_STATUS_UNAVAILABLE = 4;
+}
+
+enum RegistrationResult {
+  REGISTRATION_RESULT_UNSPECIFIED = 0;
+  REGISTRATION_ACCEPTED = 1;
+  REGISTRATION_ALREADY_REGISTERED = 2;
+  REGISTRATION_IDENTITY_CONFLICT = 3;
 }
 
 message PingRequest {

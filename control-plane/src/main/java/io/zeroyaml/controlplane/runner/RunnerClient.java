@@ -8,4 +8,6 @@ package io.zeroyaml.controlplane.runner;
 public interface RunnerClient {
 
 	RunnerPingResult ping(String message);
+
+	RunnerInfo getInfo();
 }
