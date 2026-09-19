@@ -28,6 +28,7 @@ Phase 1 — Foundation is in progress and is the only active delivery phase. The
 - Define the Runner identity and registration contract for issue #9. This branch now includes the versioned identity, capability, status, and registration result contract, Runner `GetInfo` reporting, and the Control Plane client mapping. Docker remains unavailable until execution support is verified; registration transport wiring, persistence, heartbeat, and availability scheduling remain pending.
 - Add Runner gRPC service tests for issue #8. Ping is now covered directly and through the generated gRPC client over an in-memory connection, including the echoed message, the reported runner version, an absent message, a malformed request payload, and an unknown method. The tests need no port, no Docker, and no externally running Runner.
 - Define the core Job model for issue #12. The Control Plane domain now represents provider-neutral repository context, concrete execution arguments, Runner linkage, timestamps, failure information, and explicit lifecycle transitions without adding persistence or a workflow DSL.
+- Document the Phase 1 architecture and operating contract for issue #15. The overview records current Runner gRPC behavior, registration and heartbeat ownership, the Job/RunJob boundary, protocol generation, and local verification limits.
 - Implement the next Control Plane to Runner integration steps: registration, heartbeat, and job dispatch.
 - Expand automated coverage as features land.
 
