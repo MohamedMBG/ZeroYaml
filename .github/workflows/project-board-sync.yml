@@ -1,0 +1,90 @@
+name: Project board sync
+
+on:
+  issues:
+    types: [assigned]
+  pull_request_target:
+    types: [opened, ready_for_review, reopened]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+env:
+  PROJECT_ID: PVT_kwHOB1aU-M4Bjm4l
+  STATUS_FIELD_ID: PVTSSF_lAHOB1aU-M4Bjm4lzhiaj5Q
+  IN_PROGRESS_OPTION_ID: 97e440ed
+  IN_REVIEW_OPTION_ID: 3b12c28a
+
+jobs:
+  issue-assigned-to-in-progress:
+    name: issue-assigned-to-in-progress
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Move assigned issue to In Progress
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const { addIssueToProjectStatus } = require('./.github/scripts/project-board-sync.js');
+            await addIssueToProjectStatus({
+              github,
+              core,
+              contentNodeId: context.payload.issue.node_id,
+              projectId: process.env.PROJECT_ID,
+              statusFieldId: process.env.STATUS_FIELD_ID,
+              statusOptionId: process.env.IN_PROGRESS_OPTION_ID,
+            });
+
+  pr-opened-to-in-review:
+    name: pr-opened-to-in-review
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Move linked issues to In Review
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const { addIssueToProjectStatus } = require('./.github/scripts/project-board-sync.js');
+            const closingKeywords = /\b(close[sd]?|fixe?[sd]?|resolve[sd]?)\s*:?\s*#(\d+)/gi;
+            const text = `${context.payload.pull_request.title}\n${context.payload.pull_request.body || ''}`;
+            const issueNumbers = new Set();
+            let match;
+            while ((match = closingKeywords.exec(text)) !== null) {
+              issueNumbers.add(Number(match[2]));
+            }
+
+            if (issueNumbers.size === 0) {
+              core.info('No closing keyword found in the pull request title or body; nothing to update.');
+              return;
+            }
+
+            for (const issueNumber of issueNumbers) {
+              const { data: issue } = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+              });
+
+              if (issue.pull_request) {
+                core.info(`#${issueNumber} is a pull request, not an issue; skipping.`);
+                continue;
+              }
+
+              await addIssueToProjectStatus({
+                github,
+                core,
+                contentNodeId: issue.node_id,
+                projectId: process.env.PROJECT_ID,
+                statusFieldId: process.env.STATUS_FIELD_ID,
+                statusOptionId: process.env.IN_REVIEW_OPTION_ID,
+              });
+            }
