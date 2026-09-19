@@ -1,6 +1,6 @@
 # ZeroYAML Project Progress
 
-Last updated: 2026-09-19
+Last updated: 2026-09-19 (project board sync)
 
 Current phase: 1
 
@@ -27,6 +27,7 @@ Phase 1 — Foundation is in progress and is the only active delivery phase. The
 - Add bounded graceful shutdown to the Runner gRPC server for issue #7.
 - Define the Runner identity and registration contract for issue #9. This branch now includes the versioned identity, capability, status, and registration result contract, Runner `GetInfo` reporting, and the Control Plane client mapping. Docker remains unavailable until execution support is verified; registration transport wiring, persistence, heartbeat, and availability scheduling remain pending.
 - Add Runner gRPC service tests for issue #8. Ping is now covered directly and through the generated gRPC client over an in-memory connection, including the echoed message, the reported runner version, an absent message, a malformed request payload, and an unknown method. The tests need no port, no Docker, and no externally running Runner.
+- Sync the GitHub Projects board status automatically for issue #246. A workflow sets the project item Status to `In Progress` when an issue is assigned, and to `In Review` when a pull request referencing it with `Closes`/`Fixes`/`Resolves #N` is opened. Requires the `PROJECT_TOKEN` repository secret (classic PAT, `repo` + `project` scopes), already added. Setting Status to `Done` on merge is handled separately by the project's built-in "Item closed" workflow.
 - Define the core Job model for issue #12. The Control Plane domain now represents provider-neutral repository context, concrete execution arguments, Runner linkage, timestamps, failure information, and explicit lifecycle transitions without adding persistence or a workflow DSL.
 - Implement the next Control Plane to Runner integration steps: registration, heartbeat, and job dispatch.
 - Expand automated coverage as features land.
