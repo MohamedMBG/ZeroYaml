@@ -465,6 +465,11 @@ docs/
 
 This directory is for system architecture documentation.
 
+Start with the [Phase 1 architecture and operating contract](./docs/architecture/phase-1-overview.md),
+then use the focused [Runner identity and registration contract](./docs/architecture/runner-identity.md)
+and [Core Job Model](./docs/architecture/job-model.md) references for the
+implemented foundation and its explicit integration limits.
+
 Examples:
 
 ```text
