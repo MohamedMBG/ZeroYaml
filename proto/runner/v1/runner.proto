@@ -11,6 +11,21 @@ option go_package = "github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1;runnerv
 service RunnerService {
   rpc Ping(PingRequest) returns (PingResponse);
   rpc GetInfo(GetInfoRequest) returns (RunnerInfo);
+
+  // RunJob dispatches one executable Job to this Runner process.
+  //
+  // The call acknowledges whether the Runner took responsibility for the Job;
+  // it does not report execution progress or the execution outcome. Those are
+  // separate contracts so that a dispatch never blocks on job duration.
+  //
+  // Failure behavior is split deliberately:
+  //   - A request that violates the contract, such as a missing job identity or
+  //     an empty command, fails with the gRPC status INVALID_ARGUMENT and
+  //     produces no RunJobResponse. Such a request is a caller defect.
+  //   - A well-formed request that the Runner declines returns OK with
+  //     JOB_REJECTED and a rejection reason, because the refusal is a Runner
+  //     state decision the Control Plane must record rather than retry blindly.
+  rpc RunJob(RunJobRequest) returns (RunJobResponse);
 }
 
 // RunnerRegistrationService is implemented by the Control Plane. The Runner
@@ -50,6 +65,73 @@ message RegisterRunnerResponse {
   string message = 3;
 }
 
+// RunJobRequest carries one dispatch decision made by the Control Plane. It
+// contains no scheduling, retry, or pipeline policy: the Control Plane has
+// already decided what runs, and the Runner only executes the supplied request.
+message RunJobRequest {
+  // Protocol contract understood by the caller, for example "runner.v1". A
+  // Runner that does not support the value must reject the Job instead of
+  // guessing the meaning of the remaining fields.
+  string protocol_version = 1;
+
+  JobSpecification job = 2;
+}
+
+// JobSpecification is the minimum executable description of one Job. Additional
+// execution inputs must be added as new fields on this message rather than by
+// encoding structured text into an existing field.
+message JobSpecification {
+  // Control Plane identity of the Job. It is stable for the lifetime of the Job
+  // and lets both services correlate dispatch, execution, and audit records.
+  string job_id = 1;
+
+  JobRepository repository = 2;
+  JobExecution execution = 3;
+}
+
+// JobRepository is provider-neutral source context. The Runner resolves it by
+// the URI scheme and never infers a hosting provider from the Job identity.
+message JobRepository {
+  // Absolute repository URI.
+  string location = 1;
+
+  // Immutable source revision to execute, such as a commit SHA. A mutable
+  // reference would make a Job non-reproducible.
+  string revision = 2;
+}
+
+// JobExecution is a concrete command, not a workflow definition. The argument
+// list avoids shell parsing on the Runner and keeps quoting rules out of the
+// contract.
+message JobExecution {
+  // Ordered executable arguments; the first element is the executable.
+  repeated string command = 1;
+
+  // Directory in which the command runs, relative to the checked-out repository.
+  string working_directory = 2;
+}
+
+// RunJobResponse acknowledges the dispatch. It never carries command output,
+// exit codes, or partial execution state.
+message RunJobResponse {
+  // Echo of the dispatched job identity so a caller can correlate the
+  // acknowledgment without relying on call ordering.
+  string job_id = 1;
+
+  JobAcceptance acceptance = 2;
+
+  // Set only when acceptance is JOB_REJECTED.
+  JobRejectionReason rejection_reason = 3;
+
+  // Operator-facing diagnostic. It must not contain credentials or payloads.
+  string message = 4;
+
+  // Runner process that answered. The pair identifies the process the Control
+  // Plane records against the Job once the Job is accepted.
+  string runner_id = 5;
+  string instance_id = 6;
+}
+
 enum RunnerStatus {
   RUNNER_STATUS_UNSPECIFIED = 0;
   RUNNER_STATUS_STARTING = 1;
@@ -63,6 +145,28 @@ enum RegistrationResult {
   REGISTRATION_ACCEPTED = 1;
   REGISTRATION_ALREADY_REGISTERED = 2;
   REGISTRATION_IDENTITY_CONFLICT = 3;
+}
+
+// JobAcceptance separates a Runner that took responsibility for a Job from one
+// that declined it. A caller must treat JOB_ACCEPTANCE_UNSPECIFIED as a
+// protocol error rather than as an acceptance.
+enum JobAcceptance {
+  JOB_ACCEPTANCE_UNSPECIFIED = 0;
+  JOB_ACCEPTED = 1;
+  JOB_REJECTED = 2;
+}
+
+// JobRejectionReason explains a declined dispatch. New reasons are additive, so
+// a caller must handle an unknown value as a rejection it cannot interpret.
+enum JobRejectionReason {
+  JOB_REJECTION_REASON_UNSPECIFIED = 0;
+
+  // The Runner does not implement the protocol version named by the caller.
+  JOB_REJECTION_UNSUPPORTED_PROTOCOL_VERSION = 1;
+
+  // The Runner is not accepting work, for example while starting or draining.
+  // The Control Plane may dispatch the Job to another Runner.
+  JOB_REJECTION_RUNNER_UNAVAILABLE = 2;
 }
 
 message PingRequest {
