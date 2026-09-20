@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	RunnerService_Ping_FullMethodName    = "/zeroyaml.runner.v1.RunnerService/Ping"
 	RunnerService_GetInfo_FullMethodName = "/zeroyaml.runner.v1.RunnerService/GetInfo"
+	RunnerService_RunJob_FullMethodName  = "/zeroyaml.runner.v1.RunnerService/RunJob"
 )
 
 // RunnerServiceClient is the client API for RunnerService service.
@@ -29,6 +30,20 @@ const (
 type RunnerServiceClient interface {
 	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error)
 	GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*RunnerInfo, error)
+	// RunJob dispatches one executable Job to this Runner process.
+	//
+	// The call acknowledges whether the Runner took responsibility for the Job;
+	// it does not report execution progress or the execution outcome. Those are
+	// separate contracts so that a dispatch never blocks on job duration.
+	//
+	// Failure behavior is split deliberately:
+	//   - A request that violates the contract, such as a missing job identity or
+	//     an empty command, fails with the gRPC status INVALID_ARGUMENT and
+	//     produces no RunJobResponse. Such a request is a caller defect.
+	//   - A well-formed request that the Runner declines returns OK with
+	//     JOB_REJECTED and a rejection reason, because the refusal is a Runner
+	//     state decision the Control Plane must record rather than retry blindly.
+	RunJob(ctx context.Context, in *RunJobRequest, opts ...grpc.CallOption) (*RunJobResponse, error)
 }
 
 type runnerServiceClient struct {
@@ -59,12 +74,36 @@ func (c *runnerServiceClient) GetInfo(ctx context.Context, in *GetInfoRequest, o
 	return out, nil
 }
 
+func (c *runnerServiceClient) RunJob(ctx context.Context, in *RunJobRequest, opts ...grpc.CallOption) (*RunJobResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunJobResponse)
+	err := c.cc.Invoke(ctx, RunnerService_RunJob_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RunnerServiceServer is the server API for RunnerService service.
 // All implementations must embed UnimplementedRunnerServiceServer
 // for forward compatibility.
 type RunnerServiceServer interface {
 	Ping(context.Context, *PingRequest) (*PingResponse, error)
 	GetInfo(context.Context, *GetInfoRequest) (*RunnerInfo, error)
+	// RunJob dispatches one executable Job to this Runner process.
+	//
+	// The call acknowledges whether the Runner took responsibility for the Job;
+	// it does not report execution progress or the execution outcome. Those are
+	// separate contracts so that a dispatch never blocks on job duration.
+	//
+	// Failure behavior is split deliberately:
+	//   - A request that violates the contract, such as a missing job identity or
+	//     an empty command, fails with the gRPC status INVALID_ARGUMENT and
+	//     produces no RunJobResponse. Such a request is a caller defect.
+	//   - A well-formed request that the Runner declines returns OK with
+	//     JOB_REJECTED and a rejection reason, because the refusal is a Runner
+	//     state decision the Control Plane must record rather than retry blindly.
+	RunJob(context.Context, *RunJobRequest) (*RunJobResponse, error)
 	mustEmbedUnimplementedRunnerServiceServer()
 }
 
@@ -80,6 +119,9 @@ func (UnimplementedRunnerServiceServer) Ping(context.Context, *PingRequest) (*Pi
 }
 func (UnimplementedRunnerServiceServer) GetInfo(context.Context, *GetInfoRequest) (*RunnerInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetInfo not implemented")
+}
+func (UnimplementedRunnerServiceServer) RunJob(context.Context, *RunJobRequest) (*RunJobResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RunJob not implemented")
 }
 func (UnimplementedRunnerServiceServer) mustEmbedUnimplementedRunnerServiceServer() {}
 func (UnimplementedRunnerServiceServer) testEmbeddedByValue()                       {}
@@ -138,6 +180,24 @@ func _RunnerService_GetInfo_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RunnerService_RunJob_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RunJobRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RunnerServiceServer).RunJob(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RunnerService_RunJob_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RunnerServiceServer).RunJob(ctx, req.(*RunJobRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RunnerService_ServiceDesc is the grpc.ServiceDesc for RunnerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +212,10 @@ var RunnerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetInfo",
 			Handler:    _RunnerService_GetInfo_Handler,
+		},
+		{
+			MethodName: "RunJob",
+			Handler:    _RunnerService_RunJob_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

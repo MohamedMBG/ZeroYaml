@@ -24,6 +24,10 @@ class RunnerClientConfiguration {
 	@Bean
 	RunnerClient runnerClient(ManagedChannel runnerManagedChannel, RunnerClientProperties properties) {
 		// Keep the generated stub behind the application-facing RunnerClient boundary.
-		return new GrpcRunnerClient(runnerManagedChannel, properties.getPingDeadline());
+		return new GrpcRunnerClient(
+				runnerManagedChannel,
+				properties.getPingDeadline(),
+				properties.getDispatchDeadline()
+		);
 	}
 }

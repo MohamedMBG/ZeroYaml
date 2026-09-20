@@ -603,8 +603,16 @@ The Control Plane generates its Java gRPC client from `proto/runner/v1/runner.pr
 | `zeroyaml.runner.host` | `localhost` | Runner host name |
 | `zeroyaml.runner.port` | `50051` | Runner gRPC port |
 | `zeroyaml.runner.ping-deadline` | `2s` | Ping RPC deadline |
+| `zeroyaml.runner.dispatch-deadline` | `5s` | `RunJob` RPC deadline |
 
-Override them with Spring Boot environment variables such as `ZEROYAML_RUNNER_HOST`, `ZEROYAML_RUNNER_PORT`, and `ZEROYAML_RUNNER_PING_DEADLINE`; do not hardcode deployment endpoints in Java code.
+Override them with Spring Boot environment variables such as `ZEROYAML_RUNNER_HOST`, `ZEROYAML_RUNNER_PORT`, `ZEROYAML_RUNNER_PING_DEADLINE`, and `ZEROYAML_RUNNER_DISPATCH_DEADLINE`; do not hardcode deployment endpoints in Java code.
+
+`RunJob` acknowledges a dispatch rather than waiting for execution, so the
+dispatch deadline bounds the acknowledgment only. The dispatch contract, its
+request and response fields, and its failure semantics are documented in
+[`docs/architecture/run-job-contract.md`](./docs/architecture/run-job-contract.md).
+The Runner currently reports `accepting_work = false`, so every dispatch is
+rejected with `JOB_REJECTION_RUNNER_UNAVAILABLE` until execution support lands.
 
 ### Runner development
 

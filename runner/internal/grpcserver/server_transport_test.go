@@ -189,6 +189,58 @@ func TestPingIsSafeForConcurrentCallers(t *testing.T) {
 	}
 }
 
+// TestRunJobOverGeneratedClientAcknowledgesAcceptance drives a dispatch through
+// the generated client so that request marshaling, method dispatch, and the
+// acknowledgment fields are covered end to end over a connection.
+func TestRunJobOverGeneratedClientAcknowledgesAcceptance(t *testing.T) {
+	identity := newAcceptingTestIdentity(t)
+	connection, service := startTestRunnerService(t, identity)
+
+	client := runnerv1.NewRunnerServiceClient(connection)
+
+	response, err := client.RunJob(testContext(t), newValidRunJobRequest())
+	if err != nil {
+		t.Fatalf("RunJob() returned an error: %v", err)
+	}
+
+	if response.GetAcceptance() != runnerv1.JobAcceptance_JOB_ACCEPTED {
+		t.Errorf("Acceptance = %s, want %s", response.GetAcceptance(), runnerv1.JobAcceptance_JOB_ACCEPTED)
+	}
+	if response.GetJobId() != testJobID {
+		t.Errorf("JobId = %q, want %q", response.GetJobId(), testJobID)
+	}
+	if response.GetInstanceId() != identity.InstanceID {
+		t.Errorf("InstanceId = %q, want %q", response.GetInstanceId(), identity.InstanceID)
+	}
+	if calls := service.runJobCalls.Load(); calls != 1 {
+		t.Errorf("handler entries = %d, want 1", calls)
+	}
+}
+
+// TestRunJobOverGeneratedClientReportsAnInvalidRequest shows that a contract
+// violation reaches the caller as a gRPC status rather than as an
+// acknowledgment, so a caller cannot mistake a rejected request for a tracked
+// Job.
+func TestRunJobOverGeneratedClientReportsAnInvalidRequest(t *testing.T) {
+	connection, service := startTestRunnerService(t, newAcceptingTestIdentity(t))
+
+	client := runnerv1.NewRunnerServiceClient(connection)
+
+	request := newValidRunJobRequest()
+	request.Job.Execution.Command = nil
+
+	response, err := client.RunJob(testContext(t), request)
+	if err == nil {
+		t.Fatalf("RunJob() returned %v, want an error", response)
+	}
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("status code = %s, want %s: %v", code, codes.InvalidArgument, err)
+	}
+	if calls := service.runJobCalls.Load(); calls != 1 {
+		t.Errorf("handler entries = %d, want 1", calls)
+	}
+}
+
 // rawPayloadCodec sends and receives a message body byte-for-byte. It lets a
 // test present the Runner with bytes that no generated client would produce,
 // which is how an unknown or faulty caller reaches a remote boundary.
@@ -224,7 +276,8 @@ func (rawPayloadCodec) Name() string {
 type recordingRunnerService struct {
 	*Server
 
-	pingCalls atomic.Int64
+	pingCalls   atomic.Int64
+	runJobCalls atomic.Int64
 }
 
 func (s *recordingRunnerService) Ping(
@@ -234,6 +287,15 @@ func (s *recordingRunnerService) Ping(
 	s.pingCalls.Add(1)
 
 	return s.Server.Ping(ctx, req)
+}
+
+func (s *recordingRunnerService) RunJob(
+	ctx context.Context,
+	req *runnerv1.RunJobRequest,
+) (*runnerv1.RunJobResponse, error) {
+	s.runJobCalls.Add(1)
+
+	return s.Server.RunJob(ctx, req)
 }
 
 // startTestRunnerService serves the Runner over an in-memory listener and
