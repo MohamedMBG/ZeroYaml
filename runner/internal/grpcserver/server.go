@@ -6,6 +6,7 @@ import (
 
 	runnerv1 "github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1"
 	"github.com/MohamedMBG/ZeroYaml/runner/internal/runneridentity"
+	"github.com/MohamedMBG/ZeroYaml/runner/internal/runnerinfoproto"
 )
 
 type Server struct {
@@ -33,36 +34,5 @@ func (s *Server) GetInfo(
 	ctx context.Context,
 	req *runnerv1.GetInfoRequest,
 ) (*runnerv1.RunnerInfo, error) {
-	capabilities := s.identity.Capabilities
-
-	return &runnerv1.RunnerInfo{
-		RunnerId:        s.identity.RunnerID,
-		InstanceId:      s.identity.InstanceID,
-		RunnerVersion:   s.identity.RunnerVersion,
-		ProtocolVersion: s.identity.ProtocolVersion,
-		Capabilities: &runnerv1.RunnerCapabilities{
-			OperatingSystem:    capabilities.OperatingSystem,
-			Architecture:       capabilities.Architecture,
-			DockerAvailable:    capabilities.DockerAvailable,
-			SupportedExecutors: capabilities.SupportedExecutors,
-			Labels:             capabilities.Labels,
-		},
-		Status:        statusToProto(s.identity.Status),
-		AcceptingWork: s.identity.AcceptingWork,
-	}, nil
-}
-
-func statusToProto(status runneridentity.Status) runnerv1.RunnerStatus {
-	switch status {
-	case runneridentity.StatusStarting:
-		return runnerv1.RunnerStatus_RUNNER_STATUS_STARTING
-	case runneridentity.StatusReady:
-		return runnerv1.RunnerStatus_RUNNER_STATUS_READY
-	case runneridentity.StatusDraining:
-		return runnerv1.RunnerStatus_RUNNER_STATUS_DRAINING
-	case runneridentity.StatusUnavailable:
-		return runnerv1.RunnerStatus_RUNNER_STATUS_UNAVAILABLE
-	default:
-		return runnerv1.RunnerStatus_RUNNER_STATUS_UNSPECIFIED
-	}
+	return runnerinfoproto.ToProto(s.identity), nil
 }

@@ -21,10 +21,20 @@ const (
 	// applies by default.
 	defaultShutdownTimeout = 5 * time.Second
 
-	envGRPCAddress     = "ZEROYAML_RUNNER_GRPC_ADDRESS"
-	envRunnerID        = "ZEROYAML_RUNNER_ID"
-	envVersion         = "ZEROYAML_RUNNER_VERSION"
-	envShutdownTimeout = "ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT"
+	// defaultControlPlaneAddress targets the Control Plane registration server
+	// started alongside the default Spring Boot dev profile.
+	defaultControlPlaneAddress = "localhost:50052"
+
+	// defaultRegistrationTimeout bounds the single startup registration attempt
+	// so an unreachable Control Plane cannot delay the Runner from serving.
+	defaultRegistrationTimeout = 5 * time.Second
+
+	envGRPCAddress         = "ZEROYAML_RUNNER_GRPC_ADDRESS"
+	envRunnerID            = "ZEROYAML_RUNNER_ID"
+	envVersion             = "ZEROYAML_RUNNER_VERSION"
+	envShutdownTimeout     = "ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT"
+	envControlPlaneAddress = "ZEROYAML_CONTROLPLANE_ADDRESS"
+	envRegistrationTimeout = "ZEROYAML_RUNNER_REGISTRATION_TIMEOUT"
 )
 
 // Config contains startup configuration for the Runner process.
@@ -36,6 +46,13 @@ type Config struct {
 	// ShutdownTimeout bounds the drain phase of a graceful shutdown. When it
 	// expires, the remaining RPCs are cancelled so the process always terminates.
 	ShutdownTimeout time.Duration
+
+	// ControlPlaneAddress is the Control Plane's Runner registration endpoint.
+	ControlPlaneAddress string
+
+	// RegistrationTimeout bounds the single startup registration attempt against
+	// the Control Plane.
+	RegistrationTimeout time.Duration
 }
 
 // Load reads Runner configuration from environment variables and validates it.
@@ -45,11 +62,18 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	registrationTimeout, err := durationFromEnv(envRegistrationTimeout, defaultRegistrationTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
-		GRPCAddress:     valueFromEnv(envGRPCAddress, defaultGRPCAddress),
-		RunnerID:        valueFromEnv(envRunnerID, defaultRunnerID),
-		Version:         valueFromEnv(envVersion, defaultVersion),
-		ShutdownTimeout: shutdownTimeout,
+		GRPCAddress:         valueFromEnv(envGRPCAddress, defaultGRPCAddress),
+		RunnerID:            valueFromEnv(envRunnerID, defaultRunnerID),
+		Version:             valueFromEnv(envVersion, defaultVersion),
+		ShutdownTimeout:     shutdownTimeout,
+		ControlPlaneAddress: valueFromEnv(envControlPlaneAddress, defaultControlPlaneAddress),
+		RegistrationTimeout: registrationTimeout,
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -79,6 +103,18 @@ func (c Config) Validate() error {
 
 	if c.ShutdownTimeout <= 0 {
 		return fmt.Errorf("%s must be greater than zero, got %s", envShutdownTimeout, c.ShutdownTimeout)
+	}
+
+	if strings.TrimSpace(c.ControlPlaneAddress) == "" {
+		return fmt.Errorf("%s must not be empty", envControlPlaneAddress)
+	}
+
+	if err := validateTCPAddress(c.ControlPlaneAddress); err != nil {
+		return fmt.Errorf("%s must be a TCP address in host:port form, such as localhost:50052: %w", envControlPlaneAddress, err)
+	}
+
+	if c.RegistrationTimeout <= 0 {
+		return fmt.Errorf("%s must be greater than zero, got %s", envRegistrationTimeout, c.RegistrationTimeout)
 	}
 
 	return nil
