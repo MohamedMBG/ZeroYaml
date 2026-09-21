@@ -14,7 +14,6 @@ import io.zeroyaml.contracts.runner.v1.JobSpecification;
 import io.zeroyaml.contracts.runner.v1.PingRequest;
 import io.zeroyaml.contracts.runner.v1.RunJobRequest;
 import io.zeroyaml.contracts.runner.v1.RunJobResponse;
-import io.zeroyaml.contracts.runner.v1.RunnerStatus;
 import io.zeroyaml.contracts.runner.v1.RunnerServiceGrpc;
 import io.zeroyaml.controlplane.domain.job.Job;
 import io.zeroyaml.controlplane.domain.job.JobId;
@@ -68,22 +67,7 @@ public class GrpcRunnerClient implements RunnerClient {
 			var response = runnerService
 					.withDeadlineAfter(pingDeadline.toNanos(), TimeUnit.NANOSECONDS)
 					.getInfo(GetInfoRequest.newBuilder().build());
-			var capabilities = response.getCapabilities();
-			return new RunnerInfo(
-					response.getRunnerId(),
-					response.getInstanceId(),
-					response.getRunnerVersion(),
-					response.getProtocolVersion(),
-					toRunnerState(response.getStatus()),
-					response.getAcceptingWork(),
-					new RunnerCapabilities(
-							capabilities.getOperatingSystem(),
-							capabilities.getArchitecture(),
-							capabilities.getDockerAvailable(),
-							capabilities.getSupportedExecutorsList(),
-							capabilities.getLabelsMap()
-					)
-			);
+			return RunnerInfoMapper.toDomain(response);
 		} catch (StatusRuntimeException exception) {
 			throw new RunnerClientException(
 					exception.getStatus().getCode(),
@@ -174,17 +158,6 @@ public class GrpcRunnerClient implements RunnerClient {
 			case JOB_REJECTION_UNSUPPORTED_PROTOCOL_VERSION -> JobRejectionReason.UNSUPPORTED_PROTOCOL_VERSION;
 			case JOB_REJECTION_RUNNER_UNAVAILABLE -> JobRejectionReason.RUNNER_UNAVAILABLE;
 			case JOB_REJECTION_REASON_UNSPECIFIED, UNRECOGNIZED -> JobRejectionReason.UNKNOWN;
-		};
-	}
-
-	private static RunnerState toRunnerState(RunnerStatus status) {
-		return switch (status) {
-			case RUNNER_STATUS_STARTING -> RunnerState.STARTING;
-			case RUNNER_STATUS_READY -> RunnerState.READY;
-			case RUNNER_STATUS_DRAINING -> RunnerState.DRAINING;
-			case RUNNER_STATUS_UNAVAILABLE -> RunnerState.UNAVAILABLE;
-			case RUNNER_STATUS_UNSPECIFIED, UNRECOGNIZED ->
-					throw new IllegalStateException("Runner returned an unspecified status");
 		};
 	}
 
