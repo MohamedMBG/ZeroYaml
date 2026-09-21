@@ -427,7 +427,7 @@ func TestBoundLogValueKeepsMultiByteCharactersIntact(t *testing.T) {
 	}
 }
 
-const testJobID ="0f4b1a1e-1f2c-4c53-9b3a-3f5b5f4b9a11"
+const testJobID = "0f4b1a1e-1f2c-4c53-9b3a-3f5b5f4b9a11"
 
 // newValidRunJobRequest builds the dispatch a compliant Control Plane sends.
 func newValidRunJobRequest() *runnerv1.RunJobRequest {
