@@ -1,6 +1,6 @@
 # ZeroYAML Project Progress
 
-Last updated: 2026-09-20 (RunJob dispatch contract)
+Last updated: 2026-09-21 (Runner RunJob handling)
 
 Current phase: 1
 
@@ -32,6 +32,7 @@ Phase 1 — Foundation is in progress and is the only active delivery phase. The
 - Define the core Job model for issue #12. The Control Plane domain now represents provider-neutral repository context, concrete execution arguments, Runner linkage, timestamps, failure information, and explicit lifecycle transitions without adding persistence or a workflow DSL.
 - Document the Phase 1 architecture and operating contract for issue #15. The overview records current Runner gRPC behavior, registration and heartbeat ownership, the Job/RunJob boundary, protocol generation, and local verification limits.
 - Define the `RunJob` gRPC contract for issue #13. The shared protocol now carries one executable Job from the Control Plane to a Runner with job identity, repository context, execution arguments, and a protocol version, and answers with an acceptance or an explicit rejection reason. The Runner validates every dispatch at its remote boundary, and the Control Plane maps the acknowledgment onto its own dispatch result. Execution itself is not implemented, so the Runner still reports `accepting_work = false` and rejects every dispatch with `JOB_REJECTION_RUNNER_UNAVAILABLE`. Docker execution, Runner selection, pipeline inference, log streaming, and result persistence remain out of scope.
+- Implement basic Runner `RunJob` handling for issue #14. The Runner handler now answers a request whose context is already cancelled or past its deadline with `CANCELLED` or `DEADLINE_EXCEEDED` instead of an acknowledgment, starts no goroutines, and writes one structured log record per dispatch with the job, protocol version, answering process, and outcome. Log records exclude repository location, revision, and command arguments, and bound caller-supplied identifiers. Tests cover acceptance, unavailable rejection over the transport, invalid requests, cancellation, deadline expiry, log fields, and payload redaction. Execution still does not run, and the Runner still rejects every dispatch with `JOB_REJECTION_RUNNER_UNAVAILABLE`.
 - Implement the next Control Plane to Runner integration steps: registration, heartbeat, and job dispatch.
 - Expand automated coverage as features land.
 

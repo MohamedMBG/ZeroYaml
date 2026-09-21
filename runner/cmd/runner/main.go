@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -66,7 +67,7 @@ func run() error {
 
 	runnerv1.RegisterRunnerServiceServer(
 		server,
-		grpcserver.New(identity),
+		grpcserver.New(identity, slog.New(slog.NewTextHandler(os.Stderr, nil))),
 	)
 
 	log.Printf(

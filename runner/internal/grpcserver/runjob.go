@@ -3,9 +3,11 @@ package grpcserver
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"path"
 	"strings"
+	"unicode/utf8"
 
 	runnerv1 "github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1"
 	"google.golang.org/grpc/codes"
@@ -17,8 +19,39 @@ import (
 // keeps repository details and command arguments out of Control Plane logs.
 const acceptedMessage = "job accepted by the runner"
 
+// maxLoggedValueLength bounds caller-supplied identifiers in log records. A
+// dispatch arrives from the network, so an oversized job_id or protocol_version
+// must not be able to inflate the Runner's logs.
+const maxLoggedValueLength = 128
+
 // RunJob validates a dispatched Job and answers whether this process takes
-// responsibility for it.
+// responsibility for it. Every outcome is recorded as one structured log
+// record; see logRunJob for the fields.
+//
+// A request whose context is already cancelled or past its deadline is answered
+// with the matching gRPC status and never acknowledged, because the caller can
+// no longer receive the answer and must not be recorded as having dispatched
+// the Job. The handler starts no goroutines and holds no resources beyond the
+// call, so a cancelled request leaves nothing behind. Execution work added
+// later must keep honoring ctx for the same reason.
+func (s *Server) RunJob(
+	ctx context.Context,
+	req *runnerv1.RunJobRequest,
+) (*runnerv1.RunJobResponse, error) {
+	if err := ctx.Err(); err != nil {
+		abandoned := status.FromContextError(err).Err()
+		s.logRunJob(ctx, req, nil, abandoned)
+
+		return nil, abandoned
+	}
+
+	response, err := s.acknowledgeJob(req)
+	s.logRunJob(ctx, req, response, err)
+
+	return response, err
+}
+
+// acknowledgeJob decides the answer to a dispatch without side effects.
 //
 // Checks run in contract order. The protocol version is examined first, because
 // an unsupported version makes the meaning of the remaining fields uncertain.
@@ -29,10 +62,7 @@ const acceptedMessage = "job accepted by the runner"
 // accepting_work = false and rejects every dispatch with
 // JOB_REJECTION_RUNNER_UNAVAILABLE. Accepting a Job becomes reachable when
 // execution support is added; nothing here executes a command.
-func (s *Server) RunJob(
-	ctx context.Context,
-	req *runnerv1.RunJobRequest,
-) (*runnerv1.RunJobResponse, error) {
+func (s *Server) acknowledgeJob(req *runnerv1.RunJobRequest) (*runnerv1.RunJobResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "run job request must be present")
 	}
@@ -68,6 +98,68 @@ func (s *Server) RunJob(
 		RunnerId:   s.identity.RunnerID,
 		InstanceId: s.identity.InstanceID,
 	}, nil
+}
+
+// logRunJob records the outcome of one dispatch. The record names the Job and
+// the answering process so that it can be correlated with Control Plane audit
+// records. It deliberately omits the repository location, revision, and
+// command, which may carry credentials or sensitive arguments.
+//
+// An acknowledgment is logged at INFO, a contract violation at WARN because it
+// indicates a caller defect, and an abandoned request at INFO because a caller
+// giving up is an ordinary event.
+func (s *Server) logRunJob(
+	ctx context.Context,
+	req *runnerv1.RunJobRequest,
+	response *runnerv1.RunJobResponse,
+	err error,
+) {
+	attributes := []slog.Attr{
+		slog.String("job_id", boundLogValue(req.GetJob().GetJobId())),
+		slog.String("protocol_version", boundLogValue(req.GetProtocolVersion())),
+		slog.String("runner_id", s.identity.RunnerID),
+		slog.String("instance_id", s.identity.InstanceID),
+	}
+
+	if err != nil {
+		rpcStatus := status.Convert(err)
+		attributes = append(
+			attributes,
+			slog.String("grpc_code", rpcStatus.Code().String()),
+			slog.String("error", rpcStatus.Message()),
+		)
+
+		if rpcStatus.Code() == codes.InvalidArgument {
+			s.logger.LogAttrs(ctx, slog.LevelWarn, "run job request rejected as invalid", attributes...)
+		} else {
+			s.logger.LogAttrs(ctx, slog.LevelInfo, "run job request abandoned by the caller", attributes...)
+		}
+
+		return
+	}
+
+	attributes = append(attributes, slog.String("acceptance", response.GetAcceptance().String()))
+	if response.GetAcceptance() == runnerv1.JobAcceptance_JOB_REJECTED {
+		attributes = append(attributes, slog.String("rejection_reason", response.GetRejectionReason().String()))
+	}
+
+	s.logger.LogAttrs(ctx, slog.LevelInfo, "run job acknowledged", attributes...)
+}
+
+// boundLogValue truncates a caller-supplied value to at most
+// maxLoggedValueLength bytes. The cut backs off to a UTF-8 boundary so that a
+// multi-byte character is never split into an invalid sequence.
+func boundLogValue(value string) string {
+	if len(value) <= maxLoggedValueLength {
+		return value
+	}
+
+	cut := maxLoggedValueLength
+	for cut > 0 && !utf8.RuneStart(value[cut]) {
+		cut--
+	}
+
+	return value[:cut] + "...(truncated)"
 }
 
 // rejectJob answers a well-formed dispatch the Runner declines. The response

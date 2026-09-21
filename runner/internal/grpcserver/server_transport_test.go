@@ -217,6 +217,38 @@ func TestRunJobOverGeneratedClientAcknowledgesAcceptance(t *testing.T) {
 	}
 }
 
+// TestRunJobOverGeneratedClientReportsAnUnavailableRunner shows that the
+// refusal of the current Runner, which has no execution service, reaches the
+// caller as an OK acknowledgment carrying the rejection reason.
+func TestRunJobOverGeneratedClientReportsAnUnavailableRunner(t *testing.T) {
+	identity := newTestIdentity(t)
+	connection, service := startTestRunnerService(t, identity)
+
+	client := runnerv1.NewRunnerServiceClient(connection)
+
+	response, err := client.RunJob(testContext(t), newValidRunJobRequest())
+	if err != nil {
+		t.Fatalf("RunJob() returned an error: %v", err)
+	}
+
+	if response.GetAcceptance() != runnerv1.JobAcceptance_JOB_REJECTED {
+		t.Errorf("Acceptance = %s, want %s", response.GetAcceptance(), runnerv1.JobAcceptance_JOB_REJECTED)
+	}
+	if response.GetRejectionReason() != runnerv1.JobRejectionReason_JOB_REJECTION_RUNNER_UNAVAILABLE {
+		t.Errorf(
+			"RejectionReason = %s, want %s",
+			response.GetRejectionReason(),
+			runnerv1.JobRejectionReason_JOB_REJECTION_RUNNER_UNAVAILABLE,
+		)
+	}
+	if response.GetRunnerId() != identity.RunnerID {
+		t.Errorf("RunnerId = %q, want %q", response.GetRunnerId(), identity.RunnerID)
+	}
+	if calls := service.runJobCalls.Load(); calls != 1 {
+		t.Errorf("handler entries = %d, want 1", calls)
+	}
+}
+
 // TestRunJobOverGeneratedClientReportsAnInvalidRequest shows that a contract
 // violation reaches the caller as a gRPC status rather than as an
 // acknowledgment, so a caller cannot mistake a rejected request for a tracked
@@ -308,7 +340,7 @@ func startTestRunnerService(
 	t.Helper()
 
 	listener := bufconn.Listen(transportBufferSize)
-	service := &recordingRunnerService{Server: New(identity)}
+	service := &recordingRunnerService{Server: New(identity, discardLogger())}
 
 	server := grpc.NewServer()
 	runnerv1.RegisterRunnerServiceServer(server, service)

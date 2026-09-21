@@ -31,7 +31,7 @@ func TestGetInfoReturnsProcessIdentityAndCapabilities(t *testing.T) {
 		t.Fatalf("runneridentity.New() returned an error: %v", err)
 	}
 
-	response, err := New(identity).GetInfo(context.Background(), &runnerv1.GetInfoRequest{})
+	response, err := New(identity, discardLogger()).GetInfo(context.Background(), &runnerv1.GetInfoRequest{})
 	if err != nil {
 		t.Fatalf("GetInfo() returned an error: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestPingEchoesMessageAndReportsRunnerVersion(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			identity := newTestIdentity(t)
 
-			response, err := New(identity).Ping(
+			response, err := New(identity, discardLogger()).Ping(
 				context.Background(),
 				&runnerv1.PingRequest{Message: testCase.message},
 			)
@@ -128,7 +128,7 @@ func TestPingEchoesMessageAndReportsRunnerVersion(t *testing.T) {
 func TestPingToleratesNilRequest(t *testing.T) {
 	identity := newTestIdentity(t)
 
-	response, err := New(identity).Ping(context.Background(), nil)
+	response, err := New(identity, discardLogger()).Ping(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Ping() returned an error: %v", err)
 	}
