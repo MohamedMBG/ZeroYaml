@@ -53,7 +53,7 @@ The implemented and planned parts of the foundation fit together as follows:
           +------------------------------------------->|
                                                     liveness lease
                                                          |
-                                      Job decision / future RunJob
+                                         Job decision / RunJob
                                                          |
                                                          v
                                               +------------------+
@@ -146,10 +146,9 @@ The command is represented as ordered arguments rather than a shell script;
 there is no generic workflow or YAML replacement DSL in this model. See
 [`job-model.md`](./job-model.md) for the field and transition details.
 
-`RunJob` is the name for the future application/transport operation that turns
-one selected `Job` into one concrete Runner execution request. It is not a
-second aggregate and it does not move scheduling policy into the Runner. Its
-boundary is:
+`RunJob` is the versioned transport operation that turns one selected `Job`
+into one concrete Runner execution request. It is not a second aggregate and it
+does not move scheduling policy into the Runner. Its boundary is:
 
 ```text
 Control Plane application
@@ -166,8 +165,12 @@ Control Plane application
   7. transition the Job to SUCCEEDED, FAILED, or CANCELLED
 ```
 
-There is currently no `RunJob` RPC, Runner executor, job dispatcher, or result
-transport. The steps above define the ownership boundary for the next
+Steps 4 and 6 are the dispatch seam. `RunnerService.RunJob` carries the request
+and returns an acceptance or an explicit rejection reason; see
+[`run-job-contract.md`](./run-job-contract.md) for its fields and failure
+semantics. There is still no Runner executor, job dispatcher, or result
+transport, and the Runner reports `accepting_work = false`, so every dispatch is
+rejected today. The steps above define the ownership boundary for the next
 integration work; they do not claim an implemented end-to-end workflow.
 
 ## Protocol source of truth
@@ -210,8 +213,10 @@ Pop-Location
 The Go tests cover Runner identity, gRPC service behavior, generated-client
 transport, and bounded shutdown. The Maven tests cover the Control Plane Job
 model and generated Java client mappings using an in-process gRPC server. These
-tests do not prove registration, heartbeat, or `RunJob`, because those paths
-are not implemented.
+tests also cover the `RunJob` dispatch contract on both sides: Runner-side
+validation and acceptance decisions, and the Control Plane request and
+acknowledgment mapping. They do not prove registration, heartbeat, or job
+execution, because those paths are not implemented.
 
 To observe the current Runner process locally, use a separate terminal:
 

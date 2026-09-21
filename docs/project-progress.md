@@ -1,6 +1,6 @@
 # ZeroYAML Project Progress
 
-Last updated: 2026-09-19 (project board sync)
+Last updated: 2026-09-20 (RunJob dispatch contract)
 
 Current phase: 1
 
@@ -31,6 +31,7 @@ Phase 1 — Foundation is in progress and is the only active delivery phase. The
 - Fix the project board sync workflow for issue #247. The `issue-assigned-to-in-progress` job crashed on every run (`Cannot find module '.../project-board-sync.js'`) because it never checked out the repository, unlike the sibling PR job. Added the missing checkout step; the failed run against issue #10 was corrected manually and the item's Status was confirmed `In Progress`.
 - Define the core Job model for issue #12. The Control Plane domain now represents provider-neutral repository context, concrete execution arguments, Runner linkage, timestamps, failure information, and explicit lifecycle transitions without adding persistence or a workflow DSL.
 - Document the Phase 1 architecture and operating contract for issue #15. The overview records current Runner gRPC behavior, registration and heartbeat ownership, the Job/RunJob boundary, protocol generation, and local verification limits.
+- Define the `RunJob` gRPC contract for issue #13. The shared protocol now carries one executable Job from the Control Plane to a Runner with job identity, repository context, execution arguments, and a protocol version, and answers with an acceptance or an explicit rejection reason. The Runner validates every dispatch at its remote boundary, and the Control Plane maps the acknowledgment onto its own dispatch result. Execution itself is not implemented, so the Runner still reports `accepting_work = false` and rejects every dispatch with `JOB_REJECTION_RUNNER_UNAVAILABLE`. Docker execution, Runner selection, pipeline inference, log streaming, and result persistence remain out of scope.
 - Implement the next Control Plane to Runner integration steps: registration, heartbeat, and job dispatch.
 - Expand automated coverage as features land.
 

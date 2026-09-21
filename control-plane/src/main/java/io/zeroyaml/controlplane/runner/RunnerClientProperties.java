@@ -28,6 +28,12 @@ public class RunnerClientProperties {
 	@NotNull
 	private Duration pingDeadline = Duration.ofSeconds(2);
 
+	// A dispatch is acknowledged, not executed, so this deadline bounds the
+	// acknowledgment only. It is longer than the Ping deadline because the Runner
+	// validates the request before it answers.
+	@NotNull
+	private Duration dispatchDeadline = Duration.ofSeconds(5);
+
 	public String getHost() {
 		return host;
 	}
@@ -50,5 +56,13 @@ public class RunnerClientProperties {
 
 	public void setPingDeadline(Duration pingDeadline) {
 		this.pingDeadline = pingDeadline;
+	}
+
+	public Duration getDispatchDeadline() {
+		return dispatchDeadline;
+	}
+
+	public void setDispatchDeadline(Duration dispatchDeadline) {
+		this.dispatchDeadline = dispatchDeadline;
 	}
 }
