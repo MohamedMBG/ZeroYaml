@@ -638,6 +638,21 @@ the Control Plane can distinguish each process instance. The identity and
 capability contract is documented in
 [`docs/architecture/runner-identity.md`](./docs/architecture/runner-identity.md).
 
+Each `RunJob` dispatch writes one structured log record to standard error, for
+example:
+
+```text
+time=2024-01-01T00:00:00.000Z level=INFO msg="run job acknowledged" job_id=0f4b1a1e-... protocol_version=runner.v1 runner_id=local-runner instance_id=... acceptance=JOB_REJECTED rejection_reason=JOB_REJECTION_RUNNER_UNAVAILABLE
+```
+
+Invalid requests are logged at `WARN` with the `grpc_code` and validation
+`error`, and a request whose caller already cancelled or exceeded its deadline
+is logged as abandoned and answered with `CANCELLED` or `DEADLINE_EXCEEDED`
+instead of an acknowledgment. Records never contain the repository location,
+revision, or command arguments, and caller-supplied identifiers are cut to
+128 bytes with a trailing `...(truncated)` marker, so a truncated field is up
+to 143 bytes long.
+
 The Go protobuf bindings can be regenerated from the repository root after
 installing the pinned `protoc-gen-go` and `protoc-gen-go-grpc` tool versions:
 
