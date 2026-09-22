@@ -49,9 +49,9 @@ The implemented and planned parts of the foundation fit together as follows:
  | Ping / GetInfo   |    registry pending   | registry + policy    |
  +--------+---------+                       |                      |
           |                                 +----------+-----------+
-          | future heartbeat                           |
+          | Heartbeat                                   |
           +------------------------------------------->|
-                                                    liveness lease
+                                                 lastSeenAt / liveness
                                                          |
                                          Job decision / RunJob
                                                          |
@@ -109,22 +109,29 @@ assigning work.
 
 ## Heartbeat and liveness
 
-Liveness policy belongs to the Control Plane. The minimum future behavior is:
+Liveness policy belongs to the Control Plane. `RunnerRegistrationService.Heartbeat`
+implements it as a last-seen policy, not a distributed failure detector:
 
-1. A registered Runner periodically sends a heartbeat identified by
-   `(runner_id, instance_id)`.
-2. The Control Plane refreshes that process instance's lease only after a valid
-   heartbeat and compatible identity are received.
-3. Missing or invalid heartbeats make the instance unavailable for scheduling
-   after the Control Plane's configured expiry policy.
-4. A late or conflicting heartbeat must not revive or replace a different
-   active instance.
+1. A registered Runner sends a heartbeat identified by `(runner_id, instance_id)`
+   at a configurable interval (`ZEROYAML_RUNNER_HEARTBEAT_INTERVAL`, default `5s`),
+   each attempt bounded by its own timeout (`ZEROYAML_RUNNER_HEARTBEAT_TIMEOUT`,
+   default `5s`).
+2. The Control Plane advances `lastSeenAt` for that registry entry only after a
+   heartbeat from the matching `(runner_id, instance_id)` pair is received.
+3. The Control Plane derives `HEALTHY` / `UNAVAILABLE` on demand by comparing the
+   elapsed time since `lastSeenAt` against `zeroyaml.registration.heartbeat-timeout`
+   (default `15s`); there is no background sweep.
+4. A heartbeat for an unrecognized `runner_id`, or for a different `instance_id`
+   than the one currently registered, is answered `HEARTBEAT_UNKNOWN_RUNNER` and
+   never revives or replaces a different active instance.
+5. A recovered Runner becomes `HEALTHY` again on its next acknowledged heartbeat
+   without creating a duplicate registry entry.
 
-The current `runner.v1` contract has no heartbeat RPC, and no heartbeat
-scheduler, lease store, or availability registry exists in the implementation.
-`GetInfo` is a point-in-time report, not a heartbeat and not a liveness lease.
-Heartbeat transport and availability scheduling are follow-up work and must
-preserve the `(runner_id, instance_id)` distinction.
+`GetInfo` remains a point-in-time report, separate from this liveness state.
+Persistence across Control Plane restarts, a background expiry sweep, and using
+liveness in Runner-selection scheduling remain out of scope for this contract.
+See the [Runner identity and registration contract](./runner-identity.md) for
+the full heartbeat contract and result semantics.
 
 ## Job and RunJob boundaries
 

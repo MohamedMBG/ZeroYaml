@@ -52,6 +52,38 @@ The Control Plane should handle registration results as follows:
 After the previous registration lease expires, a new process using the same
 `runner_id` may register its new `instance_id`.
 
+## Heartbeat and liveness
+
+`RunnerRegistrationService.Heartbeat` reuses the `(runner_id, instance_id)`
+identity pair rather than a new identity shape, so the Control Plane
+reconciles a heartbeat against the same registry entry that `Register`
+created.
+
+A registered Runner sends a heartbeat at a fixed interval
+(`ZEROYAML_RUNNER_HEARTBEAT_INTERVAL`, default `5s`), each attempt bounded by
+its own timeout (`ZEROYAML_RUNNER_HEARTBEAT_TIMEOUT`, default `5s`). The loop
+only starts once registration accepted the Runner, and it stops when the
+Runner shuts down; a failed or declined heartbeat is logged and never stops
+the loop or the process.
+
+The Control Plane tracks `lastSeenAt` per registered Runner, advanced by both
+registration and every acknowledged heartbeat, and derives liveness from it on
+demand rather than through a background sweep:
+
+- `HEALTHY`: a registration or heartbeat was recorded within
+  `zeroyaml.registration.heartbeat-timeout` (default `15s`).
+- `UNAVAILABLE`: no registration or heartbeat was recorded within the timeout.
+  The next acknowledged heartbeat makes the same registry entry `HEALTHY`
+  again; recovery never creates a duplicate entry.
+- `UNKNOWN`: no Runner has ever registered under that `runner_id`.
+
+A heartbeat for a `runner_id` that never registered, or that is registered
+under a different `instance_id`, is answered with
+`HEARTBEAT_UNKNOWN_RUNNER` instead of being silently accepted; the Runner
+must re-register rather than keep retrying the heartbeat. This is a
+last-seen policy, not a distributed failure detector: there is no quorum,
+and the Runner never determines its own global scheduling state.
+
 ## Compatibility
 
 The protobuf package is `zeroyaml.runner.v1`. New fields must use new field

@@ -627,10 +627,21 @@ The Runner reads startup configuration from environment variables and keeps safe
 | `ZEROYAML_RUNNER_ID` | `local-runner` | Stable logical Runner identity returned by `GetInfo` and shown in startup logs |
 | `ZEROYAML_RUNNER_VERSION` | `0.1.0` | Runner version returned by `RunnerService.Ping` |
 | `ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT` | `5s` | Bound on draining in-flight RPCs during shutdown |
+| `ZEROYAML_CONTROLPLANE_ADDRESS` | `localhost:50052` | Control Plane registration and heartbeat gRPC endpoint |
+| `ZEROYAML_RUNNER_REGISTRATION_TIMEOUT` | `5s` | Bound on the single startup registration attempt |
+| `ZEROYAML_RUNNER_HEARTBEAT_INTERVAL` | `5s` | Interval between heartbeats sent by a registered Runner |
+| `ZEROYAML_RUNNER_HEARTBEAT_TIMEOUT` | `5s` | Bound on each individual heartbeat attempt |
 
-`ZEROYAML_RUNNER_GRPC_ADDRESS` must use host-and-port syntax such as `:50051` or `127.0.0.1:50051`. Invalid values fail startup with an actionable configuration error.
+`ZEROYAML_RUNNER_GRPC_ADDRESS` and `ZEROYAML_CONTROLPLANE_ADDRESS` must use host-and-port syntax such as `:50051` or `127.0.0.1:50051`. Invalid values fail startup with an actionable configuration error.
 
-`ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT` must be a positive Go duration such as `5s` or `500ms`. Keep it below the stop grace period of the process supervisor, otherwise the supervisor kills the Runner before draining completes.
+`ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT`, `ZEROYAML_RUNNER_REGISTRATION_TIMEOUT`, `ZEROYAML_RUNNER_HEARTBEAT_INTERVAL`, and `ZEROYAML_RUNNER_HEARTBEAT_TIMEOUT` must each be a positive Go duration such as `5s` or `500ms`. Keep the shutdown timeout below the stop grace period of the process supervisor, otherwise the supervisor kills the Runner before draining completes.
+
+The heartbeat loop only starts once startup registration reports the Runner
+`ready`; a Runner the Control Plane never accepted has nothing to keep alive on
+the registry side. A failed or declined heartbeat is logged and never stops the
+loop or the process — only Runner shutdown does. See
+[Heartbeat and liveness](./docs/architecture/runner-identity.md#heartbeat-and-liveness)
+for the Control Plane side of the contract.
 
 The Runner also creates an in-memory `instance_id` once per process start. The
 same `runner_id` can therefore identify a logical Runner across restarts while

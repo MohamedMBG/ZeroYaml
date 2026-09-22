@@ -223,7 +223,8 @@ var RunnerService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	RunnerRegistrationService_Register_FullMethodName = "/zeroyaml.runner.v1.RunnerRegistrationService/Register"
+	RunnerRegistrationService_Register_FullMethodName  = "/zeroyaml.runner.v1.RunnerRegistrationService/Register"
+	RunnerRegistrationService_Heartbeat_FullMethodName = "/zeroyaml.runner.v1.RunnerRegistrationService/Heartbeat"
 )
 
 // RunnerRegistrationServiceClient is the client API for RunnerRegistrationService service.
@@ -235,6 +236,10 @@ const (
 // intentionally outside this first contract.
 type RunnerRegistrationServiceClient interface {
 	Register(ctx context.Context, in *RegisterRunnerRequest, opts ...grpc.CallOption) (*RegisterRunnerResponse, error)
+	// Heartbeat reports that a previously registered Runner instance is still
+	// alive. The Control Plane owns the meaning of a missed heartbeat and the
+	// resulting liveness state; the Runner only reports that it is up.
+	Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error)
 }
 
 type runnerRegistrationServiceClient struct {
@@ -255,6 +260,16 @@ func (c *runnerRegistrationServiceClient) Register(ctx context.Context, in *Regi
 	return out, nil
 }
 
+func (c *runnerRegistrationServiceClient) Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HeartbeatResponse)
+	err := c.cc.Invoke(ctx, RunnerRegistrationService_Heartbeat_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RunnerRegistrationServiceServer is the server API for RunnerRegistrationService service.
 // All implementations must embed UnimplementedRunnerRegistrationServiceServer
 // for forward compatibility.
@@ -264,6 +279,10 @@ func (c *runnerRegistrationServiceClient) Register(ctx context.Context, in *Regi
 // intentionally outside this first contract.
 type RunnerRegistrationServiceServer interface {
 	Register(context.Context, *RegisterRunnerRequest) (*RegisterRunnerResponse, error)
+	// Heartbeat reports that a previously registered Runner instance is still
+	// alive. The Control Plane owns the meaning of a missed heartbeat and the
+	// resulting liveness state; the Runner only reports that it is up.
+	Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error)
 	mustEmbedUnimplementedRunnerRegistrationServiceServer()
 }
 
@@ -276,6 +295,9 @@ type UnimplementedRunnerRegistrationServiceServer struct{}
 
 func (UnimplementedRunnerRegistrationServiceServer) Register(context.Context, *RegisterRunnerRequest) (*RegisterRunnerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Register not implemented")
+}
+func (UnimplementedRunnerRegistrationServiceServer) Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Heartbeat not implemented")
 }
 func (UnimplementedRunnerRegistrationServiceServer) mustEmbedUnimplementedRunnerRegistrationServiceServer() {
 }
@@ -317,6 +339,24 @@ func _RunnerRegistrationService_Register_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RunnerRegistrationService_Heartbeat_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(HeartbeatRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RunnerRegistrationServiceServer).Heartbeat(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RunnerRegistrationService_Heartbeat_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RunnerRegistrationServiceServer).Heartbeat(ctx, req.(*HeartbeatRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RunnerRegistrationService_ServiceDesc is the grpc.ServiceDesc for RunnerRegistrationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -327,6 +367,10 @@ var RunnerRegistrationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Register",
 			Handler:    _RunnerRegistrationService_Register_Handler,
+		},
+		{
+			MethodName: "Heartbeat",
+			Handler:    _RunnerRegistrationService_Heartbeat_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

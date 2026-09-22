@@ -1,13 +1,18 @@
 package io.zeroyaml.controlplane.registration;
 
+import java.time.Duration;
+
+import jakarta.annotation.PostConstruct;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * Externalized port for the Runner registration gRPC server. Bean validation
- * makes an invalid port fail during application startup.
+ * Externalized configuration for the Runner registration gRPC server and the
+ * heartbeat liveness policy it enforces. Bean validation and the startup
+ * check below make an invalid value fail during application startup instead
+ * of silently misjudging Runner liveness.
  */
 @Validated
 @ConfigurationProperties(prefix = "zeroyaml.registration")
@@ -18,11 +23,36 @@ public class RunnerRegistrationServerProperties {
 	@Max(65535)
 	private int port = 50052;
 
+	/**
+	 * Bounds how long a Runner may go without an acknowledged registration or
+	 * heartbeat before {@link RunnerLiveness#UNAVAILABLE} is reported. Kept
+	 * configurable so tests and local development can use a short timeout
+	 * without changing production behavior.
+	 */
+	private Duration heartbeatTimeout = Duration.ofSeconds(15);
+
 	public int getPort() {
 		return port;
 	}
 
 	public void setPort(int port) {
 		this.port = port;
+	}
+
+	public Duration getHeartbeatTimeout() {
+		return heartbeatTimeout;
+	}
+
+	public void setHeartbeatTimeout(Duration heartbeatTimeout) {
+		this.heartbeatTimeout = heartbeatTimeout;
+	}
+
+	@PostConstruct
+	void validate() {
+		if (heartbeatTimeout == null || heartbeatTimeout.isZero() || heartbeatTimeout.isNegative()) {
+			throw new IllegalStateException(
+					"zeroyaml.registration.heartbeat-timeout must be greater than zero, got " + heartbeatTimeout
+			);
+		}
 	}
 }

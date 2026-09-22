@@ -6,6 +6,9 @@ import org.springframework.stereotype.Component;
 
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
+import io.zeroyaml.contracts.runner.v1.HeartbeatRequest;
+import io.zeroyaml.contracts.runner.v1.HeartbeatResponse;
+import io.zeroyaml.contracts.runner.v1.HeartbeatResult;
 import io.zeroyaml.contracts.runner.v1.RegisterRunnerRequest;
 import io.zeroyaml.contracts.runner.v1.RegisterRunnerResponse;
 import io.zeroyaml.contracts.runner.v1.RegistrationResult;
@@ -13,9 +16,10 @@ import io.zeroyaml.contracts.runner.v1.RunnerRegistrationServiceGrpc;
 import io.zeroyaml.controlplane.runner.RunnerInfoMapper;
 
 /**
- * gRPC endpoint the Runner calls at startup to register with the Control Plane.
- * Translation between generated protocol types and the {@link RunnerRegistry}
- * boundary happens here so the registry stays protocol-neutral.
+ * gRPC endpoint the Runner calls to register with the Control Plane and to
+ * report liveness afterward. Translation between generated protocol types and
+ * the {@link RunnerRegistry} boundary happens here so the registry stays
+ * protocol-neutral.
  */
 @Component
 class GrpcRunnerRegistrationService extends RunnerRegistrationServiceGrpc.RunnerRegistrationServiceImplBase {
@@ -43,10 +47,24 @@ class GrpcRunnerRegistrationService extends RunnerRegistrationServiceGrpc.Runner
 		}
 	}
 
+	@Override
+	public void heartbeat(HeartbeatRequest request, StreamObserver<HeartbeatResponse> responseObserver) {
+		var outcome = registry.heartbeat(request.getRunnerId(), request.getInstanceId());
+		responseObserver.onNext(toResponse(outcome));
+		responseObserver.onCompleted();
+	}
+
 	private static RegisterRunnerResponse toResponse(RegistrationOutcome outcome) {
 		return RegisterRunnerResponse.newBuilder()
 				.setResult(toProtoResult(outcome.decision()))
 				.setRegistrationId(outcome.registrationId())
+				.setMessage(outcome.message())
+				.build();
+	}
+
+	private static HeartbeatResponse toResponse(HeartbeatOutcome outcome) {
+		return HeartbeatResponse.newBuilder()
+				.setResult(toProtoResult(outcome.decision()))
 				.setMessage(outcome.message())
 				.build();
 	}
@@ -56,6 +74,13 @@ class GrpcRunnerRegistrationService extends RunnerRegistrationServiceGrpc.Runner
 			case ACCEPTED -> RegistrationResult.REGISTRATION_ACCEPTED;
 			case ALREADY_REGISTERED -> RegistrationResult.REGISTRATION_ALREADY_REGISTERED;
 			case IDENTITY_CONFLICT -> RegistrationResult.REGISTRATION_IDENTITY_CONFLICT;
+		};
+	}
+
+	private static HeartbeatResult toProtoResult(HeartbeatDecision decision) {
+		return switch (decision) {
+			case ACKNOWLEDGED -> HeartbeatResult.HEARTBEAT_ACKNOWLEDGED;
+			case UNKNOWN_RUNNER -> HeartbeatResult.HEARTBEAT_UNKNOWN_RUNNER;
 		};
 	}
 }

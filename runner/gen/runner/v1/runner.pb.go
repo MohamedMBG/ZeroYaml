@@ -21,6 +21,60 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// HeartbeatResult separates an acknowledged heartbeat from one the Control
+// Plane cannot attribute to a registered Runner. UNKNOWN_RUNNER covers a
+// heartbeat sent before registration, after a Control Plane restart, and from
+// an instance_id the registry no longer recognizes for that runner_id; the
+// Runner must re-register rather than keep retrying the heartbeat.
+type HeartbeatResult int32
+
+const (
+	HeartbeatResult_HEARTBEAT_RESULT_UNSPECIFIED HeartbeatResult = 0
+	HeartbeatResult_HEARTBEAT_ACKNOWLEDGED       HeartbeatResult = 1
+	HeartbeatResult_HEARTBEAT_UNKNOWN_RUNNER     HeartbeatResult = 2
+)
+
+// Enum value maps for HeartbeatResult.
+var (
+	HeartbeatResult_name = map[int32]string{
+		0: "HEARTBEAT_RESULT_UNSPECIFIED",
+		1: "HEARTBEAT_ACKNOWLEDGED",
+		2: "HEARTBEAT_UNKNOWN_RUNNER",
+	}
+	HeartbeatResult_value = map[string]int32{
+		"HEARTBEAT_RESULT_UNSPECIFIED": 0,
+		"HEARTBEAT_ACKNOWLEDGED":       1,
+		"HEARTBEAT_UNKNOWN_RUNNER":     2,
+	}
+)
+
+func (x HeartbeatResult) Enum() *HeartbeatResult {
+	p := new(HeartbeatResult)
+	*p = x
+	return p
+}
+
+func (x HeartbeatResult) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (HeartbeatResult) Descriptor() protoreflect.EnumDescriptor {
+	return file_runner_v1_runner_proto_enumTypes[0].Descriptor()
+}
+
+func (HeartbeatResult) Type() protoreflect.EnumType {
+	return &file_runner_v1_runner_proto_enumTypes[0]
+}
+
+func (x HeartbeatResult) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use HeartbeatResult.Descriptor instead.
+func (HeartbeatResult) EnumDescriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{0}
+}
+
 type RunnerStatus int32
 
 const (
@@ -60,11 +114,11 @@ func (x RunnerStatus) String() string {
 }
 
 func (RunnerStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_runner_v1_runner_proto_enumTypes[0].Descriptor()
+	return file_runner_v1_runner_proto_enumTypes[1].Descriptor()
 }
 
 func (RunnerStatus) Type() protoreflect.EnumType {
-	return &file_runner_v1_runner_proto_enumTypes[0]
+	return &file_runner_v1_runner_proto_enumTypes[1]
 }
 
 func (x RunnerStatus) Number() protoreflect.EnumNumber {
@@ -73,7 +127,7 @@ func (x RunnerStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RunnerStatus.Descriptor instead.
 func (RunnerStatus) EnumDescriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{0}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{1}
 }
 
 type RegistrationResult int32
@@ -112,11 +166,11 @@ func (x RegistrationResult) String() string {
 }
 
 func (RegistrationResult) Descriptor() protoreflect.EnumDescriptor {
-	return file_runner_v1_runner_proto_enumTypes[1].Descriptor()
+	return file_runner_v1_runner_proto_enumTypes[2].Descriptor()
 }
 
 func (RegistrationResult) Type() protoreflect.EnumType {
-	return &file_runner_v1_runner_proto_enumTypes[1]
+	return &file_runner_v1_runner_proto_enumTypes[2]
 }
 
 func (x RegistrationResult) Number() protoreflect.EnumNumber {
@@ -125,7 +179,7 @@ func (x RegistrationResult) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RegistrationResult.Descriptor instead.
 func (RegistrationResult) EnumDescriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{1}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{2}
 }
 
 // JobAcceptance separates a Runner that took responsibility for a Job from one
@@ -164,11 +218,11 @@ func (x JobAcceptance) String() string {
 }
 
 func (JobAcceptance) Descriptor() protoreflect.EnumDescriptor {
-	return file_runner_v1_runner_proto_enumTypes[2].Descriptor()
+	return file_runner_v1_runner_proto_enumTypes[3].Descriptor()
 }
 
 func (JobAcceptance) Type() protoreflect.EnumType {
-	return &file_runner_v1_runner_proto_enumTypes[2]
+	return &file_runner_v1_runner_proto_enumTypes[3]
 }
 
 func (x JobAcceptance) Number() protoreflect.EnumNumber {
@@ -177,7 +231,7 @@ func (x JobAcceptance) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JobAcceptance.Descriptor instead.
 func (JobAcceptance) EnumDescriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{2}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{3}
 }
 
 // JobRejectionReason explains a declined dispatch. New reasons are additive, so
@@ -218,11 +272,11 @@ func (x JobRejectionReason) String() string {
 }
 
 func (JobRejectionReason) Descriptor() protoreflect.EnumDescriptor {
-	return file_runner_v1_runner_proto_enumTypes[3].Descriptor()
+	return file_runner_v1_runner_proto_enumTypes[4].Descriptor()
 }
 
 func (JobRejectionReason) Type() protoreflect.EnumType {
-	return &file_runner_v1_runner_proto_enumTypes[3]
+	return &file_runner_v1_runner_proto_enumTypes[4]
 }
 
 func (x JobRejectionReason) Number() protoreflect.EnumNumber {
@@ -231,7 +285,7 @@ func (x JobRejectionReason) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JobRejectionReason.Descriptor instead.
 func (JobRejectionReason) EnumDescriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{3}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{4}
 }
 
 type GetInfoRequest struct {
@@ -542,6 +596,113 @@ func (x *RegisterRunnerResponse) GetMessage() string {
 	return ""
 }
 
+// HeartbeatRequest identifies the Runner instance reporting liveness. It
+// reuses the registration identity pair instead of a new identity shape so
+// the Control Plane reconciles it against the same registry entry.
+type HeartbeatRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunnerId      string                 `protobuf:"bytes,1,opt,name=runner_id,json=runnerId,proto3" json:"runner_id,omitempty"`
+	InstanceId    string                 `protobuf:"bytes,2,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HeartbeatRequest) Reset() {
+	*x = HeartbeatRequest{}
+	mi := &file_runner_v1_runner_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HeartbeatRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HeartbeatRequest) ProtoMessage() {}
+
+func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runner_v1_runner_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HeartbeatRequest.ProtoReflect.Descriptor instead.
+func (*HeartbeatRequest) Descriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *HeartbeatRequest) GetRunnerId() string {
+	if x != nil {
+		return x.RunnerId
+	}
+	return ""
+}
+
+func (x *HeartbeatRequest) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+type HeartbeatResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Result        HeartbeatResult        `protobuf:"varint,1,opt,name=result,proto3,enum=zeroyaml.runner.v1.HeartbeatResult" json:"result,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HeartbeatResponse) Reset() {
+	*x = HeartbeatResponse{}
+	mi := &file_runner_v1_runner_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HeartbeatResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HeartbeatResponse) ProtoMessage() {}
+
+func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runner_v1_runner_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HeartbeatResponse.ProtoReflect.Descriptor instead.
+func (*HeartbeatResponse) Descriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *HeartbeatResponse) GetResult() HeartbeatResult {
+	if x != nil {
+		return x.Result
+	}
+	return HeartbeatResult_HEARTBEAT_RESULT_UNSPECIFIED
+}
+
+func (x *HeartbeatResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 // RunJobRequest carries one dispatch decision made by the Control Plane. It
 // contains no scheduling, retry, or pipeline policy: the Control Plane has
 // already decided what runs, and the Runner only executes the supplied request.
@@ -558,7 +719,7 @@ type RunJobRequest struct {
 
 func (x *RunJobRequest) Reset() {
 	*x = RunJobRequest{}
-	mi := &file_runner_v1_runner_proto_msgTypes[5]
+	mi := &file_runner_v1_runner_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -570,7 +731,7 @@ func (x *RunJobRequest) String() string {
 func (*RunJobRequest) ProtoMessage() {}
 
 func (x *RunJobRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runner_v1_runner_proto_msgTypes[5]
+	mi := &file_runner_v1_runner_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -583,7 +744,7 @@ func (x *RunJobRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunJobRequest.ProtoReflect.Descriptor instead.
 func (*RunJobRequest) Descriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{5}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RunJobRequest) GetProtocolVersion() string {
@@ -616,7 +777,7 @@ type JobSpecification struct {
 
 func (x *JobSpecification) Reset() {
 	*x = JobSpecification{}
-	mi := &file_runner_v1_runner_proto_msgTypes[6]
+	mi := &file_runner_v1_runner_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -628,7 +789,7 @@ func (x *JobSpecification) String() string {
 func (*JobSpecification) ProtoMessage() {}
 
 func (x *JobSpecification) ProtoReflect() protoreflect.Message {
-	mi := &file_runner_v1_runner_proto_msgTypes[6]
+	mi := &file_runner_v1_runner_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -641,7 +802,7 @@ func (x *JobSpecification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobSpecification.ProtoReflect.Descriptor instead.
 func (*JobSpecification) Descriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{6}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *JobSpecification) GetJobId() string {
@@ -680,7 +841,7 @@ type JobRepository struct {
 
 func (x *JobRepository) Reset() {
 	*x = JobRepository{}
-	mi := &file_runner_v1_runner_proto_msgTypes[7]
+	mi := &file_runner_v1_runner_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -692,7 +853,7 @@ func (x *JobRepository) String() string {
 func (*JobRepository) ProtoMessage() {}
 
 func (x *JobRepository) ProtoReflect() protoreflect.Message {
-	mi := &file_runner_v1_runner_proto_msgTypes[7]
+	mi := &file_runner_v1_runner_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -705,7 +866,7 @@ func (x *JobRepository) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobRepository.ProtoReflect.Descriptor instead.
 func (*JobRepository) Descriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{7}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *JobRepository) GetLocation() string {
@@ -737,7 +898,7 @@ type JobExecution struct {
 
 func (x *JobExecution) Reset() {
 	*x = JobExecution{}
-	mi := &file_runner_v1_runner_proto_msgTypes[8]
+	mi := &file_runner_v1_runner_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -749,7 +910,7 @@ func (x *JobExecution) String() string {
 func (*JobExecution) ProtoMessage() {}
 
 func (x *JobExecution) ProtoReflect() protoreflect.Message {
-	mi := &file_runner_v1_runner_proto_msgTypes[8]
+	mi := &file_runner_v1_runner_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -762,7 +923,7 @@ func (x *JobExecution) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobExecution.ProtoReflect.Descriptor instead.
 func (*JobExecution) Descriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{8}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *JobExecution) GetCommand() []string {
@@ -801,7 +962,7 @@ type RunJobResponse struct {
 
 func (x *RunJobResponse) Reset() {
 	*x = RunJobResponse{}
-	mi := &file_runner_v1_runner_proto_msgTypes[9]
+	mi := &file_runner_v1_runner_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -813,7 +974,7 @@ func (x *RunJobResponse) String() string {
 func (*RunJobResponse) ProtoMessage() {}
 
 func (x *RunJobResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runner_v1_runner_proto_msgTypes[9]
+	mi := &file_runner_v1_runner_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -826,7 +987,7 @@ func (x *RunJobResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunJobResponse.ProtoReflect.Descriptor instead.
 func (*RunJobResponse) Descriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{9}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *RunJobResponse) GetJobId() string {
@@ -880,7 +1041,7 @@ type PingRequest struct {
 
 func (x *PingRequest) Reset() {
 	*x = PingRequest{}
-	mi := &file_runner_v1_runner_proto_msgTypes[10]
+	mi := &file_runner_v1_runner_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -892,7 +1053,7 @@ func (x *PingRequest) String() string {
 func (*PingRequest) ProtoMessage() {}
 
 func (x *PingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runner_v1_runner_proto_msgTypes[10]
+	mi := &file_runner_v1_runner_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -905,7 +1066,7 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
 func (*PingRequest) Descriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{10}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *PingRequest) GetMessage() string {
@@ -925,7 +1086,7 @@ type PingResponse struct {
 
 func (x *PingResponse) Reset() {
 	*x = PingResponse{}
-	mi := &file_runner_v1_runner_proto_msgTypes[11]
+	mi := &file_runner_v1_runner_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -937,7 +1098,7 @@ func (x *PingResponse) String() string {
 func (*PingResponse) ProtoMessage() {}
 
 func (x *PingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runner_v1_runner_proto_msgTypes[11]
+	mi := &file_runner_v1_runner_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -950,7 +1111,7 @@ func (x *PingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
 func (*PingResponse) Descriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{11}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *PingResponse) GetMessage() string {
@@ -997,7 +1158,14 @@ const file_runner_v1_runner_proto_rawDesc = "" +
 	"\x16RegisterRunnerResponse\x12>\n" +
 	"\x06result\x18\x01 \x01(\x0e2&.zeroyaml.runner.v1.RegistrationResultR\x06result\x12'\n" +
 	"\x0fregistration_id\x18\x02 \x01(\tR\x0eregistrationId\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"r\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"P\n" +
+	"\x10HeartbeatRequest\x12\x1b\n" +
+	"\trunner_id\x18\x01 \x01(\tR\brunnerId\x12\x1f\n" +
+	"\vinstance_id\x18\x02 \x01(\tR\n" +
+	"instanceId\"j\n" +
+	"\x11HeartbeatResponse\x12;\n" +
+	"\x06result\x18\x01 \x01(\x0e2#.zeroyaml.runner.v1.HeartbeatResultR\x06result\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"r\n" +
 	"\rRunJobRequest\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\tR\x0fprotocolVersion\x126\n" +
 	"\x03job\x18\x02 \x01(\v2$.zeroyaml.runner.v1.JobSpecificationR\x03job\"\xac\x01\n" +
@@ -1027,7 +1195,11 @@ const file_runner_v1_runner_proto_rawDesc = "" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"O\n" +
 	"\fPingResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12%\n" +
-	"\x0erunner_version\x18\x02 \x01(\tR\rrunnerVersion*\x9d\x01\n" +
+	"\x0erunner_version\x18\x02 \x01(\tR\rrunnerVersion*m\n" +
+	"\x0fHeartbeatResult\x12 \n" +
+	"\x1cHEARTBEAT_RESULT_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16HEARTBEAT_ACKNOWLEDGED\x10\x01\x12\x1c\n" +
+	"\x18HEARTBEAT_UNKNOWN_RUNNER\x10\x02*\x9d\x01\n" +
 	"\fRunnerStatus\x12\x1d\n" +
 	"\x19RUNNER_STATUS_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16RUNNER_STATUS_STARTING\x10\x01\x12\x17\n" +
@@ -1050,9 +1222,10 @@ const file_runner_v1_runner_proto_rawDesc = "" +
 	"\rRunnerService\x12I\n" +
 	"\x04Ping\x12\x1f.zeroyaml.runner.v1.PingRequest\x1a .zeroyaml.runner.v1.PingResponse\x12M\n" +
 	"\aGetInfo\x12\".zeroyaml.runner.v1.GetInfoRequest\x1a\x1e.zeroyaml.runner.v1.RunnerInfo\x12O\n" +
-	"\x06RunJob\x12!.zeroyaml.runner.v1.RunJobRequest\x1a\".zeroyaml.runner.v1.RunJobResponse2~\n" +
+	"\x06RunJob\x12!.zeroyaml.runner.v1.RunJobRequest\x1a\".zeroyaml.runner.v1.RunJobResponse2\xd8\x01\n" +
 	"\x19RunnerRegistrationService\x12a\n" +
-	"\bRegister\x12).zeroyaml.runner.v1.RegisterRunnerRequest\x1a*.zeroyaml.runner.v1.RegisterRunnerResponseBn\n" +
+	"\bRegister\x12).zeroyaml.runner.v1.RegisterRunnerRequest\x1a*.zeroyaml.runner.v1.RegisterRunnerResponse\x12X\n" +
+	"\tHeartbeat\x12$.zeroyaml.runner.v1.HeartbeatRequest\x1a%.zeroyaml.runner.v1.HeartbeatResponseBn\n" +
 	"\x1fio.zeroyaml.contracts.runner.v1B\vRunnerProtoP\x01Z<github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1;runnerv1b\x06proto3"
 
 var (
@@ -1067,51 +1240,57 @@ func file_runner_v1_runner_proto_rawDescGZIP() []byte {
 	return file_runner_v1_runner_proto_rawDescData
 }
 
-var file_runner_v1_runner_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_runner_v1_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_runner_v1_runner_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_runner_v1_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_runner_v1_runner_proto_goTypes = []any{
-	(RunnerStatus)(0),              // 0: zeroyaml.runner.v1.RunnerStatus
-	(RegistrationResult)(0),        // 1: zeroyaml.runner.v1.RegistrationResult
-	(JobAcceptance)(0),             // 2: zeroyaml.runner.v1.JobAcceptance
-	(JobRejectionReason)(0),        // 3: zeroyaml.runner.v1.JobRejectionReason
-	(*GetInfoRequest)(nil),         // 4: zeroyaml.runner.v1.GetInfoRequest
-	(*RunnerInfo)(nil),             // 5: zeroyaml.runner.v1.RunnerInfo
-	(*RunnerCapabilities)(nil),     // 6: zeroyaml.runner.v1.RunnerCapabilities
-	(*RegisterRunnerRequest)(nil),  // 7: zeroyaml.runner.v1.RegisterRunnerRequest
-	(*RegisterRunnerResponse)(nil), // 8: zeroyaml.runner.v1.RegisterRunnerResponse
-	(*RunJobRequest)(nil),          // 9: zeroyaml.runner.v1.RunJobRequest
-	(*JobSpecification)(nil),       // 10: zeroyaml.runner.v1.JobSpecification
-	(*JobRepository)(nil),          // 11: zeroyaml.runner.v1.JobRepository
-	(*JobExecution)(nil),           // 12: zeroyaml.runner.v1.JobExecution
-	(*RunJobResponse)(nil),         // 13: zeroyaml.runner.v1.RunJobResponse
-	(*PingRequest)(nil),            // 14: zeroyaml.runner.v1.PingRequest
-	(*PingResponse)(nil),           // 15: zeroyaml.runner.v1.PingResponse
-	nil,                            // 16: zeroyaml.runner.v1.RunnerCapabilities.LabelsEntry
+	(HeartbeatResult)(0),           // 0: zeroyaml.runner.v1.HeartbeatResult
+	(RunnerStatus)(0),              // 1: zeroyaml.runner.v1.RunnerStatus
+	(RegistrationResult)(0),        // 2: zeroyaml.runner.v1.RegistrationResult
+	(JobAcceptance)(0),             // 3: zeroyaml.runner.v1.JobAcceptance
+	(JobRejectionReason)(0),        // 4: zeroyaml.runner.v1.JobRejectionReason
+	(*GetInfoRequest)(nil),         // 5: zeroyaml.runner.v1.GetInfoRequest
+	(*RunnerInfo)(nil),             // 6: zeroyaml.runner.v1.RunnerInfo
+	(*RunnerCapabilities)(nil),     // 7: zeroyaml.runner.v1.RunnerCapabilities
+	(*RegisterRunnerRequest)(nil),  // 8: zeroyaml.runner.v1.RegisterRunnerRequest
+	(*RegisterRunnerResponse)(nil), // 9: zeroyaml.runner.v1.RegisterRunnerResponse
+	(*HeartbeatRequest)(nil),       // 10: zeroyaml.runner.v1.HeartbeatRequest
+	(*HeartbeatResponse)(nil),      // 11: zeroyaml.runner.v1.HeartbeatResponse
+	(*RunJobRequest)(nil),          // 12: zeroyaml.runner.v1.RunJobRequest
+	(*JobSpecification)(nil),       // 13: zeroyaml.runner.v1.JobSpecification
+	(*JobRepository)(nil),          // 14: zeroyaml.runner.v1.JobRepository
+	(*JobExecution)(nil),           // 15: zeroyaml.runner.v1.JobExecution
+	(*RunJobResponse)(nil),         // 16: zeroyaml.runner.v1.RunJobResponse
+	(*PingRequest)(nil),            // 17: zeroyaml.runner.v1.PingRequest
+	(*PingResponse)(nil),           // 18: zeroyaml.runner.v1.PingResponse
+	nil,                            // 19: zeroyaml.runner.v1.RunnerCapabilities.LabelsEntry
 }
 var file_runner_v1_runner_proto_depIdxs = []int32{
-	6,  // 0: zeroyaml.runner.v1.RunnerInfo.capabilities:type_name -> zeroyaml.runner.v1.RunnerCapabilities
-	0,  // 1: zeroyaml.runner.v1.RunnerInfo.status:type_name -> zeroyaml.runner.v1.RunnerStatus
-	16, // 2: zeroyaml.runner.v1.RunnerCapabilities.labels:type_name -> zeroyaml.runner.v1.RunnerCapabilities.LabelsEntry
-	5,  // 3: zeroyaml.runner.v1.RegisterRunnerRequest.runner:type_name -> zeroyaml.runner.v1.RunnerInfo
-	1,  // 4: zeroyaml.runner.v1.RegisterRunnerResponse.result:type_name -> zeroyaml.runner.v1.RegistrationResult
-	10, // 5: zeroyaml.runner.v1.RunJobRequest.job:type_name -> zeroyaml.runner.v1.JobSpecification
-	11, // 6: zeroyaml.runner.v1.JobSpecification.repository:type_name -> zeroyaml.runner.v1.JobRepository
-	12, // 7: zeroyaml.runner.v1.JobSpecification.execution:type_name -> zeroyaml.runner.v1.JobExecution
-	2,  // 8: zeroyaml.runner.v1.RunJobResponse.acceptance:type_name -> zeroyaml.runner.v1.JobAcceptance
-	3,  // 9: zeroyaml.runner.v1.RunJobResponse.rejection_reason:type_name -> zeroyaml.runner.v1.JobRejectionReason
-	14, // 10: zeroyaml.runner.v1.RunnerService.Ping:input_type -> zeroyaml.runner.v1.PingRequest
-	4,  // 11: zeroyaml.runner.v1.RunnerService.GetInfo:input_type -> zeroyaml.runner.v1.GetInfoRequest
-	9,  // 12: zeroyaml.runner.v1.RunnerService.RunJob:input_type -> zeroyaml.runner.v1.RunJobRequest
-	7,  // 13: zeroyaml.runner.v1.RunnerRegistrationService.Register:input_type -> zeroyaml.runner.v1.RegisterRunnerRequest
-	15, // 14: zeroyaml.runner.v1.RunnerService.Ping:output_type -> zeroyaml.runner.v1.PingResponse
-	5,  // 15: zeroyaml.runner.v1.RunnerService.GetInfo:output_type -> zeroyaml.runner.v1.RunnerInfo
-	13, // 16: zeroyaml.runner.v1.RunnerService.RunJob:output_type -> zeroyaml.runner.v1.RunJobResponse
-	8,  // 17: zeroyaml.runner.v1.RunnerRegistrationService.Register:output_type -> zeroyaml.runner.v1.RegisterRunnerResponse
-	14, // [14:18] is the sub-list for method output_type
-	10, // [10:14] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	7,  // 0: zeroyaml.runner.v1.RunnerInfo.capabilities:type_name -> zeroyaml.runner.v1.RunnerCapabilities
+	1,  // 1: zeroyaml.runner.v1.RunnerInfo.status:type_name -> zeroyaml.runner.v1.RunnerStatus
+	19, // 2: zeroyaml.runner.v1.RunnerCapabilities.labels:type_name -> zeroyaml.runner.v1.RunnerCapabilities.LabelsEntry
+	6,  // 3: zeroyaml.runner.v1.RegisterRunnerRequest.runner:type_name -> zeroyaml.runner.v1.RunnerInfo
+	2,  // 4: zeroyaml.runner.v1.RegisterRunnerResponse.result:type_name -> zeroyaml.runner.v1.RegistrationResult
+	0,  // 5: zeroyaml.runner.v1.HeartbeatResponse.result:type_name -> zeroyaml.runner.v1.HeartbeatResult
+	13, // 6: zeroyaml.runner.v1.RunJobRequest.job:type_name -> zeroyaml.runner.v1.JobSpecification
+	14, // 7: zeroyaml.runner.v1.JobSpecification.repository:type_name -> zeroyaml.runner.v1.JobRepository
+	15, // 8: zeroyaml.runner.v1.JobSpecification.execution:type_name -> zeroyaml.runner.v1.JobExecution
+	3,  // 9: zeroyaml.runner.v1.RunJobResponse.acceptance:type_name -> zeroyaml.runner.v1.JobAcceptance
+	4,  // 10: zeroyaml.runner.v1.RunJobResponse.rejection_reason:type_name -> zeroyaml.runner.v1.JobRejectionReason
+	17, // 11: zeroyaml.runner.v1.RunnerService.Ping:input_type -> zeroyaml.runner.v1.PingRequest
+	5,  // 12: zeroyaml.runner.v1.RunnerService.GetInfo:input_type -> zeroyaml.runner.v1.GetInfoRequest
+	12, // 13: zeroyaml.runner.v1.RunnerService.RunJob:input_type -> zeroyaml.runner.v1.RunJobRequest
+	8,  // 14: zeroyaml.runner.v1.RunnerRegistrationService.Register:input_type -> zeroyaml.runner.v1.RegisterRunnerRequest
+	10, // 15: zeroyaml.runner.v1.RunnerRegistrationService.Heartbeat:input_type -> zeroyaml.runner.v1.HeartbeatRequest
+	18, // 16: zeroyaml.runner.v1.RunnerService.Ping:output_type -> zeroyaml.runner.v1.PingResponse
+	6,  // 17: zeroyaml.runner.v1.RunnerService.GetInfo:output_type -> zeroyaml.runner.v1.RunnerInfo
+	16, // 18: zeroyaml.runner.v1.RunnerService.RunJob:output_type -> zeroyaml.runner.v1.RunJobResponse
+	9,  // 19: zeroyaml.runner.v1.RunnerRegistrationService.Register:output_type -> zeroyaml.runner.v1.RegisterRunnerResponse
+	11, // 20: zeroyaml.runner.v1.RunnerRegistrationService.Heartbeat:output_type -> zeroyaml.runner.v1.HeartbeatResponse
+	16, // [16:21] is the sub-list for method output_type
+	11, // [11:16] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_runner_v1_runner_proto_init() }
@@ -1124,8 +1303,8 @@ func file_runner_v1_runner_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runner_v1_runner_proto_rawDesc), len(file_runner_v1_runner_proto_rawDesc)),
-			NumEnums:      4,
-			NumMessages:   13,
+			NumEnums:      5,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

@@ -5,6 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -21,9 +25,11 @@ import io.zeroyaml.controlplane.runner.RunnerState;
 
 class InMemoryRunnerRegistryTest {
 
+	private static final Duration HEARTBEAT_TIMEOUT = Duration.ofSeconds(15);
+
 	@Test
 	void acceptsTheFirstRegistrationForARunnerId() {
-		var registry = new InMemoryRunnerRegistry();
+		var registry = newRegistry(Instant.EPOCH);
 
 		var outcome = registry.register(runner("runner-1", "instance-1"));
 
@@ -33,7 +39,7 @@ class InMemoryRunnerRegistryTest {
 
 	@Test
 	void treatsTheSameInstanceRegisteringAgainAsAlreadyRegistered() {
-		var registry = new InMemoryRunnerRegistry();
+		var registry = newRegistry(Instant.EPOCH);
 
 		var first = registry.register(runner("runner-1", "instance-1"));
 		var second = registry.register(runner("runner-1", "instance-1"));
@@ -44,7 +50,7 @@ class InMemoryRunnerRegistryTest {
 
 	@Test
 	void treatsADifferentInstanceForTheSameRunnerIdAsAnIdentityConflict() {
-		var registry = new InMemoryRunnerRegistry();
+		var registry = newRegistry(Instant.EPOCH);
 
 		registry.register(runner("runner-1", "instance-1"));
 		var conflict = registry.register(runner("runner-1", "instance-2"));
@@ -55,7 +61,7 @@ class InMemoryRunnerRegistryTest {
 
 	@Test
 	void registersDifferentRunnerIdsIndependently() {
-		var registry = new InMemoryRunnerRegistry();
+		var registry = newRegistry(Instant.EPOCH);
 
 		var first = registry.register(runner("runner-1", "instance-1"));
 		var second = registry.register(runner("runner-2", "instance-1"));
@@ -67,7 +73,7 @@ class InMemoryRunnerRegistryTest {
 
 	@Test
 	void registersConcurrentAttemptsForTheSameRunnerIdExactlyOnce() throws InterruptedException {
-		var registry = new InMemoryRunnerRegistry();
+		var registry = newRegistry(Instant.EPOCH);
 		var attempts = 16;
 		var readyLatch = new CountDownLatch(attempts);
 		var startLatch = new CountDownLatch(1);
@@ -100,6 +106,106 @@ class InMemoryRunnerRegistryTest {
 		}
 
 		assertEquals(1, accepted.get());
+	}
+
+	@Test
+	void reportsUnknownLivenessForARunnerIdThatNeverRegistered() {
+		var registry = newRegistry(Instant.EPOCH);
+
+		assertEquals(RunnerLiveness.UNKNOWN, registry.livenessOf("runner-1"));
+	}
+
+	@Test
+	void reportsHealthyLivenessRightAfterRegistration() {
+		var registry = newRegistry(Instant.EPOCH);
+
+		registry.register(runner("runner-1", "instance-1"));
+
+		assertEquals(RunnerLiveness.HEALTHY, registry.livenessOf("runner-1"));
+	}
+
+	@Test
+	void acknowledgesAHeartbeatFromTheRegisteredInstance() {
+		var registry = newRegistry(Instant.EPOCH);
+		registry.register(runner("runner-1", "instance-1"));
+
+		var outcome = registry.heartbeat("runner-1", "instance-1");
+
+		assertEquals(HeartbeatDecision.ACKNOWLEDGED, outcome.decision());
+	}
+
+	@Test
+	void rejectsAHeartbeatForARunnerIdThatNeverRegistered() {
+		var registry = newRegistry(Instant.EPOCH);
+
+		var outcome = registry.heartbeat("runner-1", "instance-1");
+
+		assertEquals(HeartbeatDecision.UNKNOWN_RUNNER, outcome.decision());
+	}
+
+	@Test
+	void rejectsAHeartbeatFromADifferentInstanceThanTheRegisteredOne() {
+		var registry = newRegistry(Instant.EPOCH);
+		registry.register(runner("runner-1", "instance-1"));
+
+		var outcome = registry.heartbeat("runner-1", "instance-2");
+
+		assertEquals(HeartbeatDecision.UNKNOWN_RUNNER, outcome.decision());
+		assertEquals(RunnerLiveness.HEALTHY, registry.livenessOf("runner-1"));
+	}
+
+	@Test
+	void becomesUnavailableAfterTheHeartbeatTimeoutElapsesWithNoHeartbeat() {
+		var clock = new MutableClock(Instant.EPOCH);
+		var registry = newRegistry(clock);
+		registry.register(runner("runner-1", "instance-1"));
+
+		clock.advance(HEARTBEAT_TIMEOUT.plusSeconds(1));
+
+		assertEquals(RunnerLiveness.UNAVAILABLE, registry.livenessOf("runner-1"));
+	}
+
+	@Test
+	void staysHealthyWhileAHeartbeatArrivesBeforeEachTimeoutWindowElapses() {
+		var clock = new MutableClock(Instant.EPOCH);
+		var registry = newRegistry(clock);
+		registry.register(runner("runner-1", "instance-1"));
+
+		clock.advance(HEARTBEAT_TIMEOUT.minusSeconds(1));
+		assertEquals(HeartbeatDecision.ACKNOWLEDGED, registry.heartbeat("runner-1", "instance-1").decision());
+		assertEquals(RunnerLiveness.HEALTHY, registry.livenessOf("runner-1"));
+
+		clock.advance(HEARTBEAT_TIMEOUT.minusSeconds(1));
+		assertEquals(RunnerLiveness.HEALTHY, registry.livenessOf("runner-1"));
+	}
+
+	@Test
+	void recoversToHealthyAfterAMissedWindowWithoutADuplicateRegistryEntry() {
+		var clock = new MutableClock(Instant.EPOCH);
+		var registry = newRegistry(clock);
+		var registered = registry.register(runner("runner-1", "instance-1"));
+
+		clock.advance(HEARTBEAT_TIMEOUT.plusSeconds(1));
+		assertEquals(RunnerLiveness.UNAVAILABLE, registry.livenessOf("runner-1"));
+
+		var heartbeat = registry.heartbeat("runner-1", "instance-1");
+		assertEquals(HeartbeatDecision.ACKNOWLEDGED, heartbeat.decision());
+		assertEquals(RunnerLiveness.HEALTHY, registry.livenessOf("runner-1"));
+
+		// Recovery must not create a second registration for the same runnerId.
+		var reRegistered = registry.register(runner("runner-1", "instance-1"));
+		assertEquals(RegistrationDecision.ALREADY_REGISTERED, reRegistered.decision());
+		assertEquals(registered.registrationId(), reRegistered.registrationId());
+	}
+
+	private static InMemoryRunnerRegistry newRegistry(Instant instant) {
+		return newRegistry(Clock.fixed(instant, ZoneOffset.UTC));
+	}
+
+	private static InMemoryRunnerRegistry newRegistry(Clock clock) {
+		var properties = new RunnerRegistrationServerProperties();
+		properties.setHeartbeatTimeout(HEARTBEAT_TIMEOUT);
+		return new InMemoryRunnerRegistry(clock, properties);
 	}
 
 	private static RunnerInfo runner(String runnerId, String instanceId) {

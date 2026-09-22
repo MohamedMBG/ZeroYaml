@@ -33,6 +33,11 @@ service RunnerService {
 // intentionally outside this first contract.
 service RunnerRegistrationService {
   rpc Register(RegisterRunnerRequest) returns (RegisterRunnerResponse);
+
+  // Heartbeat reports that a previously registered Runner instance is still
+  // alive. The Control Plane owns the meaning of a missed heartbeat and the
+  // resulting liveness state; the Runner only reports that it is up.
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
 }
 
 message GetInfoRequest {}
@@ -63,6 +68,30 @@ message RegisterRunnerResponse {
   RegistrationResult result = 1;
   string registration_id = 2;
   string message = 3;
+}
+
+// HeartbeatRequest identifies the Runner instance reporting liveness. It
+// reuses the registration identity pair instead of a new identity shape so
+// the Control Plane reconciles it against the same registry entry.
+message HeartbeatRequest {
+  string runner_id = 1;
+  string instance_id = 2;
+}
+
+message HeartbeatResponse {
+  HeartbeatResult result = 1;
+  string message = 2;
+}
+
+// HeartbeatResult separates an acknowledged heartbeat from one the Control
+// Plane cannot attribute to a registered Runner. UNKNOWN_RUNNER covers a
+// heartbeat sent before registration, after a Control Plane restart, and from
+// an instance_id the registry no longer recognizes for that runner_id; the
+// Runner must re-register rather than keep retrying the heartbeat.
+enum HeartbeatResult {
+  HEARTBEAT_RESULT_UNSPECIFIED = 0;
+  HEARTBEAT_ACKNOWLEDGED = 1;
+  HEARTBEAT_UNKNOWN_RUNNER = 2;
 }
 
 // RunJobRequest carries one dispatch decision made by the Control Plane. It

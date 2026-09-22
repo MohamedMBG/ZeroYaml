@@ -29,12 +29,22 @@ const (
 	// so an unreachable Control Plane cannot delay the Runner from serving.
 	defaultRegistrationTimeout = 5 * time.Second
 
+	// defaultHeartbeatInterval controls how often a successfully registered
+	// Runner reports liveness to the Control Plane.
+	defaultHeartbeatInterval = 5 * time.Second
+
+	// defaultHeartbeatTimeout bounds each individual heartbeat attempt so a
+	// slow or unreachable Control Plane cannot stall the next scheduled tick.
+	defaultHeartbeatTimeout = 5 * time.Second
+
 	envGRPCAddress         = "ZEROYAML_RUNNER_GRPC_ADDRESS"
 	envRunnerID            = "ZEROYAML_RUNNER_ID"
 	envVersion             = "ZEROYAML_RUNNER_VERSION"
 	envShutdownTimeout     = "ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT"
 	envControlPlaneAddress = "ZEROYAML_CONTROLPLANE_ADDRESS"
 	envRegistrationTimeout = "ZEROYAML_RUNNER_REGISTRATION_TIMEOUT"
+	envHeartbeatInterval   = "ZEROYAML_RUNNER_HEARTBEAT_INTERVAL"
+	envHeartbeatTimeout    = "ZEROYAML_RUNNER_HEARTBEAT_TIMEOUT"
 )
 
 // Config contains startup configuration for the Runner process.
@@ -53,6 +63,13 @@ type Config struct {
 	// RegistrationTimeout bounds the single startup registration attempt against
 	// the Control Plane.
 	RegistrationTimeout time.Duration
+
+	// HeartbeatInterval controls how often a registered Runner reports
+	// liveness to the Control Plane.
+	HeartbeatInterval time.Duration
+
+	// HeartbeatTimeout bounds each individual heartbeat attempt.
+	HeartbeatTimeout time.Duration
 }
 
 // Load reads Runner configuration from environment variables and validates it.
@@ -67,6 +84,16 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	heartbeatInterval, err := durationFromEnv(envHeartbeatInterval, defaultHeartbeatInterval)
+	if err != nil {
+		return Config{}, err
+	}
+
+	heartbeatTimeout, err := durationFromEnv(envHeartbeatTimeout, defaultHeartbeatTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		GRPCAddress:         valueFromEnv(envGRPCAddress, defaultGRPCAddress),
 		RunnerID:            valueFromEnv(envRunnerID, defaultRunnerID),
@@ -74,6 +101,8 @@ func Load() (Config, error) {
 		ShutdownTimeout:     shutdownTimeout,
 		ControlPlaneAddress: valueFromEnv(envControlPlaneAddress, defaultControlPlaneAddress),
 		RegistrationTimeout: registrationTimeout,
+		HeartbeatInterval:   heartbeatInterval,
+		HeartbeatTimeout:    heartbeatTimeout,
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -115,6 +144,14 @@ func (c Config) Validate() error {
 
 	if c.RegistrationTimeout <= 0 {
 		return fmt.Errorf("%s must be greater than zero, got %s", envRegistrationTimeout, c.RegistrationTimeout)
+	}
+
+	if c.HeartbeatInterval <= 0 {
+		return fmt.Errorf("%s must be greater than zero, got %s", envHeartbeatInterval, c.HeartbeatInterval)
+	}
+
+	if c.HeartbeatTimeout <= 0 {
+		return fmt.Errorf("%s must be greater than zero, got %s", envHeartbeatTimeout, c.HeartbeatTimeout)
 	}
 
 	return nil
