@@ -6,12 +6,17 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 
 import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.StatusRuntimeException;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
+import io.zeroyaml.contracts.runner.v1.HeartbeatRequest;
+import io.zeroyaml.contracts.runner.v1.HeartbeatResult;
 import io.zeroyaml.contracts.runner.v1.RegisterRunnerRequest;
 import io.zeroyaml.contracts.runner.v1.RegistrationResult;
 import io.zeroyaml.contracts.runner.v1.RunnerCapabilities;
@@ -43,7 +48,7 @@ class GrpcRunnerRegistrationServiceTest {
 
 	@Test
 	void acceptsTheFirstRegistrationForARunnerId() throws IOException {
-		var client = startService(new InMemoryRunnerRegistry());
+		var client = startService(newRegistry());
 
 		var response = client.register(registerRequest("runner-1", "instance-1"));
 
@@ -53,7 +58,7 @@ class GrpcRunnerRegistrationServiceTest {
 
 	@Test
 	void returnsTheSameRegistrationIdForARepeatedRequestFromTheSameInstance() throws IOException {
-		var client = startService(new InMemoryRunnerRegistry());
+		var client = startService(newRegistry());
 
 		var first = client.register(registerRequest("runner-1", "instance-1"));
 		var second = client.register(registerRequest("runner-1", "instance-1"));
@@ -64,7 +69,7 @@ class GrpcRunnerRegistrationServiceTest {
 
 	@Test
 	void rejectsADifferentInstanceForAnAlreadyRegisteredRunnerId() throws IOException {
-		var client = startService(new InMemoryRunnerRegistry());
+		var client = startService(newRegistry());
 
 		client.register(registerRequest("runner-1", "instance-1"));
 		var conflict = client.register(registerRequest("runner-1", "instance-2"));
@@ -75,7 +80,7 @@ class GrpcRunnerRegistrationServiceTest {
 
 	@Test
 	void rejectsAnUnspecifiedRunnerStatusAsAnInvalidArgument() throws IOException {
-		var client = startService(new InMemoryRunnerRegistry());
+		var client = startService(newRegistry());
 
 		var request = RegisterRunnerRequest.newBuilder()
 				.setRunner(RunnerInfo.newBuilder()
@@ -89,6 +94,51 @@ class GrpcRunnerRegistrationServiceTest {
 				.build();
 
 		assertThrows(StatusRuntimeException.class, () -> client.register(request));
+	}
+
+	@Test
+	void acknowledgesAHeartbeatForARegisteredInstance() throws IOException {
+		var client = startService(newRegistry());
+		client.register(registerRequest("runner-1", "instance-1"));
+
+		var response = client.heartbeat(HeartbeatRequest.newBuilder()
+				.setRunnerId("runner-1")
+				.setInstanceId("instance-1")
+				.build());
+
+		assertEquals(HeartbeatResult.HEARTBEAT_ACKNOWLEDGED, response.getResult());
+	}
+
+	@Test
+	void reportsUnknownRunnerForAHeartbeatBeforeRegistration() throws IOException {
+		var client = startService(newRegistry());
+
+		var response = client.heartbeat(HeartbeatRequest.newBuilder()
+				.setRunnerId("runner-1")
+				.setInstanceId("instance-1")
+				.build());
+
+		assertEquals(HeartbeatResult.HEARTBEAT_UNKNOWN_RUNNER, response.getResult());
+	}
+
+	@Test
+	void reportsUnknownRunnerForAHeartbeatFromADifferentInstance() throws IOException {
+		var client = startService(newRegistry());
+		client.register(registerRequest("runner-1", "instance-1"));
+
+		var response = client.heartbeat(HeartbeatRequest.newBuilder()
+				.setRunnerId("runner-1")
+				.setInstanceId("instance-2")
+				.build());
+
+		assertEquals(HeartbeatResult.HEARTBEAT_UNKNOWN_RUNNER, response.getResult());
+	}
+
+	private static InMemoryRunnerRegistry newRegistry() {
+		return new InMemoryRunnerRegistry(
+				Clock.fixed(Instant.EPOCH, ZoneOffset.UTC),
+				new RunnerRegistrationServerProperties()
+		);
 	}
 
 	private RunnerRegistrationServiceGrpc.RunnerRegistrationServiceBlockingStub startService(

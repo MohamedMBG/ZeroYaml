@@ -12,6 +12,7 @@ import (
 
 	runnerv1 "github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1"
 	"github.com/MohamedMBG/ZeroYaml/runner/internal/grpcserver"
+	"github.com/MohamedMBG/ZeroYaml/runner/internal/heartbeat"
 	"github.com/MohamedMBG/ZeroYaml/runner/internal/registrationclient"
 	"github.com/MohamedMBG/ZeroYaml/runner/internal/runnerconfig"
 	"github.com/MohamedMBG/ZeroYaml/runner/internal/runneridentity"
@@ -56,7 +57,16 @@ func run() error {
 	// the Control Plane was told. A Control Plane that is unreachable or that
 	// rejects the request leaves the Runner unavailable rather than failing
 	// startup, because Ping and GetInfo must stay reachable for diagnosis.
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
 	identity = registerWithControlPlane(ctx, cfg, identity)
+
+	// The heartbeat loop only starts once registration reported the Runner
+	// ready; a Runner the Control Plane never accepted has nothing to keep
+	// alive on the registry side. It stops on its own once ctx is cancelled.
+	if identity.Status == runneridentity.StatusReady {
+		go heartbeat.Run(ctx, cfg.ControlPlaneAddress, identity, cfg.HeartbeatInterval, cfg.HeartbeatTimeout, logger)
+	}
 
 	listener, err := net.Listen("tcp", cfg.GRPCAddress)
 	if err != nil {
@@ -67,7 +77,7 @@ func run() error {
 
 	runnerv1.RegisterRunnerServiceServer(
 		server,
-		grpcserver.New(identity, slog.New(slog.NewTextHandler(os.Stderr, nil))),
+		grpcserver.New(identity, logger),
 	)
 
 	log.Printf(
