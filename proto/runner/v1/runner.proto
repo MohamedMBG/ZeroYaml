@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package zeroyaml.runner.v1;
 
+import "google/protobuf/timestamp.proto";
+
 option java_multiple_files = true;
 option java_package = "io.zeroyaml.contracts.runner.v1";
 option java_outer_classname = "RunnerProto";
@@ -38,6 +40,22 @@ service RunnerRegistrationService {
   // alive. The Control Plane owns the meaning of a missed heartbeat and the
   // resulting liveness state; the Runner only reports that it is up.
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+// JobExecutionStatusService is implemented by the Control Plane. A Runner that
+// accepted a Job through RunnerService.RunJob uses it to report what that
+// execution did.
+//
+// The split of responsibility is deliberate. The Runner reports execution
+// facts; the Control Plane owns the authoritative Job state, validates every
+// transition, and decides what a report means for the pipeline. A Runner
+// therefore never learns scheduling, retry, or cancellation policy here.
+//
+// The call is safe to repeat. Every report is reconciled against the state the
+// Control Plane already recorded, so a duplicate or a late report is answered
+// explicitly instead of corrupting the Job lifecycle.
+service JobExecutionStatusService {
+  rpc ReportJobStatus(ReportJobStatusRequest) returns (ReportJobStatusResponse);
 }
 
 message GetInfoRequest {}
@@ -196,6 +214,138 @@ enum JobRejectionReason {
   // The Runner is not accepting work, for example while starting or draining.
   // The Control Plane may dispatch the Job to another Runner.
   JOB_REJECTION_RUNNER_UNAVAILABLE = 2;
+}
+
+// ReportJobStatusRequest carries one observation made by the Runner process
+// that executes a Job. It reports what happened, never what the Control Plane
+// should do about it.
+message ReportJobStatusRequest {
+  // Protocol contract understood by the caller, for example "runner.v1". A
+  // Control Plane that does not implement the value must reject the report
+  // instead of guessing the meaning of the remaining fields.
+  string protocol_version = 1;
+
+  // Control Plane identity of the Job, as dispatched in RunJobRequest.
+  string job_id = 2;
+
+  // Runner process reporting the execution. A report from a process the Job is
+  // not assigned to is refused, because only the executing process observes
+  // these facts.
+  string runner_id = 3;
+  string instance_id = 4;
+
+  JobExecutionState state = 5;
+
+  // When the Runner started executing the Job. Every report repeats it,
+  // including a terminal one, so that a lost running report cannot leave a
+  // finished Job without a start time.
+  google.protobuf.Timestamp started_at = 6;
+
+  // When execution ended. Set only for a terminal state.
+  google.protobuf.Timestamp completed_at = 7;
+
+  // Terminal outcome detail. Set only for a terminal state.
+  JobExecutionResult result = 8;
+}
+
+// JobExecutionResult describes how one execution ended.
+message JobExecutionResult {
+  // Exit code reported by the executed command. It is absent when no command
+  // produced one, for example when the Runner could not start it or stopped it
+  // on timeout, so a caller must never read an absent code as a successful 0.
+  optional int32 exit_code = 1;
+
+  // Set only when state is JOB_EXECUTION_FAILED.
+  JobExecutionFailureReason failure_reason = 2;
+
+  // Operator-facing diagnostic. It must not contain credentials, environment
+  // values, or captured command output; logs are a separate contract.
+  string failure_message = 3;
+}
+
+// ReportJobStatusResponse states how the Control Plane reconciled one report
+// against the Job state it owns.
+message ReportJobStatusResponse {
+  // Echo of the reported Job identity so a caller can correlate the answer
+  // without relying on call ordering.
+  string job_id = 1;
+
+  JobStatusReportResult result = 2;
+
+  // Authoritative Job state after reconciliation. It is unspecified only when
+  // the Control Plane does not know the Job. A Runner may use it to learn that
+  // its Job was already cancelled, but it must not derive policy from it.
+  JobLifecycleState job_state = 3;
+
+  // Operator-facing diagnostic. It must not contain credentials or payloads.
+  string message = 4;
+}
+
+// JobExecutionState is the execution fact a Runner reports. It carries no
+// queued state, because queueing is a Control Plane decision a Runner never
+// observes, and no cancelled state, because a Runner reports a cancelled or
+// timed-out execution as JOB_EXECUTION_FAILED with the matching reason.
+enum JobExecutionState {
+  JOB_EXECUTION_STATE_UNSPECIFIED = 0;
+  JOB_EXECUTION_RUNNING = 1;
+  JOB_EXECUTION_SUCCEEDED = 2;
+  JOB_EXECUTION_FAILED = 3;
+}
+
+// JobExecutionFailureReason explains a failed execution. New reasons are
+// additive, so a caller must handle an unknown value as a failure it cannot
+// categorize rather than as a success.
+enum JobExecutionFailureReason {
+  JOB_EXECUTION_FAILURE_REASON_UNSPECIFIED = 0;
+
+  // The command ran to completion and exited with a non-zero code.
+  JOB_EXECUTION_FAILURE_NON_ZERO_EXIT = 1;
+
+  // The Runner stopped the execution because it exceeded its time budget.
+  JOB_EXECUTION_FAILURE_TIMEOUT = 2;
+
+  // The execution was stopped before it finished, for example while the Runner
+  // was shutting down.
+  JOB_EXECUTION_FAILURE_CANCELLED = 3;
+
+  // The Runner could not execute the Job at all, for example because the
+  // workspace or the executor could not be prepared.
+  JOB_EXECUTION_FAILURE_EXECUTION_ERROR = 4;
+}
+
+// JobStatusReportResult separates a report that advanced the Job from one the
+// Control Plane deliberately did not apply. Only APPLIED changes Job state; the
+// remaining values leave it untouched, which is what makes the call safe to
+// repeat.
+enum JobStatusReportResult {
+  JOB_STATUS_REPORT_RESULT_UNSPECIFIED = 0;
+
+  // The report moved the Job to a new authoritative state.
+  JOB_STATUS_REPORT_APPLIED = 1;
+
+  // The Job already records this report, or has already moved past it. This
+  // covers a retried report and a report that arrives after a later one.
+  JOB_STATUS_REPORT_DUPLICATE = 2;
+
+  // The Control Plane does not know the Job.
+  JOB_STATUS_REPORT_UNKNOWN_JOB = 3;
+
+  // The report contradicts the authoritative state, for example a second and
+  // different terminal outcome, or a report from a process the Job is not
+  // assigned to. The Job keeps the state it already recorded.
+  JOB_STATUS_REPORT_CONFLICT = 4;
+}
+
+// JobLifecycleState mirrors the Control Plane Job lifecycle. It is reported
+// back to the Runner for correlation and diagnosis only.
+enum JobLifecycleState {
+  JOB_LIFECYCLE_STATE_UNSPECIFIED = 0;
+  JOB_LIFECYCLE_CREATED = 1;
+  JOB_LIFECYCLE_QUEUED = 2;
+  JOB_LIFECYCLE_RUNNING = 3;
+  JOB_LIFECYCLE_SUCCEEDED = 4;
+  JOB_LIFECYCLE_FAILED = 5;
+  JOB_LIFECYCLE_CANCELLED = 6;
 }
 
 message PingRequest {
