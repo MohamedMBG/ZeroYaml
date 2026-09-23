@@ -1,0 +1,179 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+#
+# CodeRabbit reviews every pull request against the ZeroYAML working agreement in
+# CLAUDE.md. It advises only. The merge gate stays with the required GitHub
+# checks (runner, control-plane, progress-file, phase-gate, secret-scan,
+# static-analysis) and the two approving human reviews, so every pre-merge check
+# below runs in warning mode and the request-changes workflow stays off.
+
+language: en-US
+
+tone_instructions: >-
+  Write objective review comments. Never use first-person language such as "I",
+  "me", "my", "we", or "our": state a finding as a fact about the code. Quote
+  the ZeroYAML rule or contract that a finding violates.
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: true
+  poem: false
+
+  path_filters:
+    # Generated protobuf bindings are never edited by hand, so reviewing them
+    # produces findings that cannot be acted on.
+    - "!runner/gen/**"
+    - "!**/target/**"
+    - "!**/*.pb.go"
+
+  path_instructions:
+    - path: control-plane/**/*.java
+      instructions: >-
+        Enforce the Control Plane boundary: this service decides and
+        coordinates, and it must not perform Runner execution work. Require
+        constructor injection over field injection and global state. Require
+        business rules to stay independent of web, persistence, messaging, and
+        gRPC transport types. Flag network calls without a timeout or deadline,
+        swallowed exceptions, caught exceptions that lose their cause, and
+        logging that includes credentials, repository locations, revisions, or
+        command arguments. Flag public classes, methods, and fields that no
+        caller needs. Require Javadoc on public APIs and on architectural
+        boundaries, and require a comment explaining why a non-obvious timeout,
+        invariant, compatibility rule, or failure mapping exists. Flag vague
+        names such as Helper, Manager, Utils, Data, and Thing. Require
+        validation of data arriving at a system boundary.
+    - path: control-plane/src/test/**/*.java
+      instructions: >-
+        Require coverage of the success path, validation and boundary cases, and
+        the expected failure behavior. Flag tests that depend on execution
+        order, wall-clock sleeps, fixed ports, developer-specific paths, or
+        public network services. Flag assertions weakened to make a failing test
+        pass.
+    - path: runner/**/*.go
+      instructions: >-
+        Enforce the Runner boundary: this service executes and must not make
+        Control Plane policy decisions. Require context.Context to be threaded
+        through every operation that performs I/O, waits, or can be cancelled,
+        and require cancellation and deadline expiry to be answered explicitly.
+        Flag ignored error returns, errors returned without context, goroutines
+        with no bounded lifetime, unbounded channels or in-memory collections,
+        and processes, containers, streams, files, or connections that are not
+        released deterministically. Keep executable wiring in cmd/ and reusable
+        implementation detail in internal/. Flag structured log records that
+        carry repository locations, revisions, command arguments, or unbounded
+        caller-supplied identifiers. Require doc comments on exported
+        identifiers.
+    - path: runner/**/*_test.go
+      instructions: >-
+        Require coverage of the success path, validation failures, transport
+        rejection, cancellation, and deadline expiry where the code under test
+        can reach them. Flag arbitrary sleeps, fixed ports, and dependence on
+        Docker or on an externally running service.
+    - path: proto/**/*.proto
+      instructions: >-
+        Treat this directory as the source of truth for the Control Plane to
+        Runner contract. Field numbers must never be reused or renumbered, and a
+        removed number must stay reserved. Flag any change that breaks wire
+        compatibility, and require the pull request description to state the
+        compatibility impact and to confirm that both the Java and the Go
+        consumer were tested.
+    - path: .github/workflows/**
+      instructions: >-
+        Require a least-privilege permissions block, pinned action and container
+        versions, and explicit handling of untrusted pull request input. Flag
+        any use of a secret in a workflow that runs untrusted code, and any
+        interpolation of pull request text directly into a run block.
+    - path: docs/project-progress.md
+      instructions: >-
+        Require the current state, completed work, in-progress work, next steps,
+        and risks to match the change actually proposed. Flag any claim that
+        unmerged local work is complete or released on main, and flag a
+        "Current phase" change that is not backed by a completed phase.
+    - path: "**/*.md"
+      instructions: >-
+        Flag first-person language, agent attribution, generated-by notices, and
+        co-author entries. Require setup and behavior documentation to match the
+        code changed in the same pull request.
+
+  auto_review:
+    enabled: true
+    # A draft pull request is still being shaped, so reviewing it produces
+    # findings against code the author has not finished writing.
+    drafts: false
+    auto_incremental_review: true
+    base_branches:
+      - main
+
+  pre_merge_checks:
+    title:
+      mode: warning
+      requirements: >-
+        The title must follow Conventional Commits as type(scope): description,
+        for example "feat(runner): connect control plane over grpc". Allowed
+        types are feat, fix, docs, test, refactor, perf, build, ci, and chore.
+        The description must be concise, lower case, and free of first-person
+        language.
+    description:
+      mode: warning
+    issue_assessment:
+      mode: warning
+    custom_checks:
+      - name: Project progress updated
+        mode: warning
+        instructions: >-
+          Pass when the changed files include docs/project-progress.md. Fail
+          otherwise, and state that every ZeroYAML pull request must record the
+          current project state in that file.
+      - name: Closing issue reference
+        mode: warning
+        instructions: >-
+          Pass when the pull request description contains a closing reference of
+          the form "Closes #<number>", "Fixes #<number>", or "Resolves
+          #<number>". Fail otherwise, and state that the phase gate resolves the
+          active phase from the referenced issue.
+      - name: Objective language and no agent attribution
+        mode: warning
+        instructions: >-
+          Fail when the pull request title, the description, or any added source
+          comment or documentation line uses first-person language ("I", "me",
+          "my", "we", "our"), names an AI assistant, or adds a generated-by
+          notice or a co-author trailer. Pass otherwise.
+      - name: Scope limited to the referenced issue
+        mode: warning
+        instructions: >-
+          Fail when the change contains work that the referenced issue does not
+          cover, such as an unrelated refactor, a repository-wide reformat, or a
+          new dependency the issue never mentions, and name the out-of-scope
+          files. Pass when every changed file serves the referenced issue,
+          docs/project-progress.md, or documentation that the change makes
+          stale.
+
+  tools:
+    # The workflow in .github/workflows/pr-checks.yml gates on the same two
+    # scanners. CodeRabbit reports their findings inline on the diff, which is
+    # where they are actionable.
+    gitleaks:
+      enabled: true
+    semgrep:
+      enabled: true
+    golangci-lint:
+      enabled: true
+    # The shared protocol is the cross-service contract, so it gets a linter.
+    buf:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    github-checks:
+      enabled: true
+
+chat:
+  auto_reply: true
