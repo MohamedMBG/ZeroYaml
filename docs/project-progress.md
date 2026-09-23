@@ -1,6 +1,6 @@
 # ZeroYAML Project Progress
 
-Last updated: 2026-09-22 (Phase 2: Runner execution status reporting)
+Last updated: 2026-09-23 (Phase 2: Runner execution status reporting)
 
 Current phase: 2
 
@@ -37,6 +37,7 @@ The status-reporting path for issue #27 is implemented locally but not yet merge
 - Implemented basic Runner `RunJob` handling for issue #14. The Runner handler answers a request whose context is already cancelled or past its deadline with `CANCELLED` or `DEADLINE_EXCEEDED` instead of an acknowledgment, starts no goroutines, and writes one structured log record per dispatch with the job, protocol version, answering process, and outcome. Log records exclude repository location, revision, and command arguments, and bound caller-supplied identifiers. Tests cover acceptance, unavailable rejection over the transport, invalid requests, cancellation, deadline expiry, log fields, and payload redaction.
 - Added Runner heartbeat and liveness for issue #11. `RunnerRegistrationService.Heartbeat` reuses the registration identity pair; the Control Plane records `lastSeenAt` per registry entry on registration and every acknowledged heartbeat, and derives `HEALTHY` / `UNAVAILABLE` liveness on demand against a configurable `zeroyaml.registration.heartbeat-timeout` (default `15s`). A heartbeat for an unrecognized `runner_id` or a mismatched `instance_id` is answered `HEARTBEAT_UNKNOWN_RUNNER` rather than accepted. The Runner sends heartbeats at a configurable interval (`ZEROYAML_RUNNER_HEARTBEAT_INTERVAL`, default `5s`, each attempt bounded by `ZEROYAML_RUNNER_HEARTBEAT_TIMEOUT`, default `5s`) once startup registration reports it ready, and stops on shutdown; a failed or declined heartbeat is logged and never stops the loop.
 - Closed issue #33 (Phase 1 parent) after verifying every Phase 1 acceptance criterion against the state of `main`; all child issues #1-#15 are closed.
+- Added automated pull-request review and security scanning for issue #258. `.coderabbit.yaml` binds CodeRabbit to the working agreement in `CLAUDE.md` through per-path instructions covering the Control Plane and Runner boundaries, protobuf wire compatibility, workflow least privilege, and progress-file truthfulness. Every pre-merge check runs in warning mode and the request-changes workflow stays off, so the automated review advises and never gates a merge; the merge gate remains the required checks and the two approving human reviews. `.github/workflows/pr-checks.yml` adds a `secret-scan` job that runs gitleaks over the full pull-request commit range and a `static-analysis` job that runs pinned Semgrep OSS rulesets for Java, Go, and workflow sources. Both jobs hold `contents: read` only, check out without persisted credentials, and pin every action to a commit SHA. The existing `ci.yml` and `project-board-sync.yml` workflows now pin their actions to commit SHAs as well, because a mutable tag can be repointed by the action owner and the new static analysis treats that as a blocking supply-chain finding.
 
 ## In progress
 
@@ -65,7 +66,9 @@ The status-reporting path for issue #27 is implemented locally but not yet merge
 
 - Job state for issue #27 is held in an in-memory store, so it is lost on Control Plane restart. Durable persistence is tracked separately as issue #28.
 - Neither side retries a status report. A report lost in transit is recovered by the reconciliation rules rather than by resending; bounded retry with backoff remains Phase 5 work.
-- No other known blockers at this time.
+- `secret-scan` and `static-analysis` are new check names. They gate merges only after the branch protection rule for `main` lists them, which follows their first successful run.
+- `.coderabbit.yaml` takes effect only once the CodeRabbit GitHub App is installed on the repository.
+- The Semgrep run excludes `go.grpc.security.grpc-server-insecure-connection` while the Runner gRPC server is deliberately plaintext. That exclusion is removed with Phase 6 transport security (issues #231-#242).
 
 ## Update policy
 
