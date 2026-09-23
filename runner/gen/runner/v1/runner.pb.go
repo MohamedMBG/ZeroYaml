@@ -9,6 +9,7 @@ package runnerv1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -286,6 +287,255 @@ func (x JobRejectionReason) Number() protoreflect.EnumNumber {
 // Deprecated: Use JobRejectionReason.Descriptor instead.
 func (JobRejectionReason) EnumDescriptor() ([]byte, []int) {
 	return file_runner_v1_runner_proto_rawDescGZIP(), []int{4}
+}
+
+// JobExecutionState is the execution fact a Runner reports. It carries no
+// queued state, because queueing is a Control Plane decision a Runner never
+// observes, and no cancelled state, because a Runner reports a cancelled or
+// timed-out execution as JOB_EXECUTION_FAILED with the matching reason.
+type JobExecutionState int32
+
+const (
+	JobExecutionState_JOB_EXECUTION_STATE_UNSPECIFIED JobExecutionState = 0
+	JobExecutionState_JOB_EXECUTION_RUNNING           JobExecutionState = 1
+	JobExecutionState_JOB_EXECUTION_SUCCEEDED         JobExecutionState = 2
+	JobExecutionState_JOB_EXECUTION_FAILED            JobExecutionState = 3
+)
+
+// Enum value maps for JobExecutionState.
+var (
+	JobExecutionState_name = map[int32]string{
+		0: "JOB_EXECUTION_STATE_UNSPECIFIED",
+		1: "JOB_EXECUTION_RUNNING",
+		2: "JOB_EXECUTION_SUCCEEDED",
+		3: "JOB_EXECUTION_FAILED",
+	}
+	JobExecutionState_value = map[string]int32{
+		"JOB_EXECUTION_STATE_UNSPECIFIED": 0,
+		"JOB_EXECUTION_RUNNING":           1,
+		"JOB_EXECUTION_SUCCEEDED":         2,
+		"JOB_EXECUTION_FAILED":            3,
+	}
+)
+
+func (x JobExecutionState) Enum() *JobExecutionState {
+	p := new(JobExecutionState)
+	*p = x
+	return p
+}
+
+func (x JobExecutionState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (JobExecutionState) Descriptor() protoreflect.EnumDescriptor {
+	return file_runner_v1_runner_proto_enumTypes[5].Descriptor()
+}
+
+func (JobExecutionState) Type() protoreflect.EnumType {
+	return &file_runner_v1_runner_proto_enumTypes[5]
+}
+
+func (x JobExecutionState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use JobExecutionState.Descriptor instead.
+func (JobExecutionState) EnumDescriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{5}
+}
+
+// JobExecutionFailureReason explains a failed execution. New reasons are
+// additive, so a caller must handle an unknown value as a failure it cannot
+// categorize rather than as a success.
+type JobExecutionFailureReason int32
+
+const (
+	JobExecutionFailureReason_JOB_EXECUTION_FAILURE_REASON_UNSPECIFIED JobExecutionFailureReason = 0
+	// The command ran to completion and exited with a non-zero code.
+	JobExecutionFailureReason_JOB_EXECUTION_FAILURE_NON_ZERO_EXIT JobExecutionFailureReason = 1
+	// The Runner stopped the execution because it exceeded its time budget.
+	JobExecutionFailureReason_JOB_EXECUTION_FAILURE_TIMEOUT JobExecutionFailureReason = 2
+	// The execution was stopped before it finished, for example while the Runner
+	// was shutting down.
+	JobExecutionFailureReason_JOB_EXECUTION_FAILURE_CANCELLED JobExecutionFailureReason = 3
+	// The Runner could not execute the Job at all, for example because the
+	// workspace or the executor could not be prepared.
+	JobExecutionFailureReason_JOB_EXECUTION_FAILURE_EXECUTION_ERROR JobExecutionFailureReason = 4
+)
+
+// Enum value maps for JobExecutionFailureReason.
+var (
+	JobExecutionFailureReason_name = map[int32]string{
+		0: "JOB_EXECUTION_FAILURE_REASON_UNSPECIFIED",
+		1: "JOB_EXECUTION_FAILURE_NON_ZERO_EXIT",
+		2: "JOB_EXECUTION_FAILURE_TIMEOUT",
+		3: "JOB_EXECUTION_FAILURE_CANCELLED",
+		4: "JOB_EXECUTION_FAILURE_EXECUTION_ERROR",
+	}
+	JobExecutionFailureReason_value = map[string]int32{
+		"JOB_EXECUTION_FAILURE_REASON_UNSPECIFIED": 0,
+		"JOB_EXECUTION_FAILURE_NON_ZERO_EXIT":      1,
+		"JOB_EXECUTION_FAILURE_TIMEOUT":            2,
+		"JOB_EXECUTION_FAILURE_CANCELLED":          3,
+		"JOB_EXECUTION_FAILURE_EXECUTION_ERROR":    4,
+	}
+)
+
+func (x JobExecutionFailureReason) Enum() *JobExecutionFailureReason {
+	p := new(JobExecutionFailureReason)
+	*p = x
+	return p
+}
+
+func (x JobExecutionFailureReason) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (JobExecutionFailureReason) Descriptor() protoreflect.EnumDescriptor {
+	return file_runner_v1_runner_proto_enumTypes[6].Descriptor()
+}
+
+func (JobExecutionFailureReason) Type() protoreflect.EnumType {
+	return &file_runner_v1_runner_proto_enumTypes[6]
+}
+
+func (x JobExecutionFailureReason) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use JobExecutionFailureReason.Descriptor instead.
+func (JobExecutionFailureReason) EnumDescriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{6}
+}
+
+// JobStatusReportResult separates a report that advanced the Job from one the
+// Control Plane deliberately did not apply. Only APPLIED changes Job state; the
+// remaining values leave it untouched, which is what makes the call safe to
+// repeat.
+type JobStatusReportResult int32
+
+const (
+	JobStatusReportResult_JOB_STATUS_REPORT_RESULT_UNSPECIFIED JobStatusReportResult = 0
+	// The report moved the Job to a new authoritative state.
+	JobStatusReportResult_JOB_STATUS_REPORT_APPLIED JobStatusReportResult = 1
+	// The Job already records this report, or has already moved past it. This
+	// covers a retried report and a report that arrives after a later one.
+	JobStatusReportResult_JOB_STATUS_REPORT_DUPLICATE JobStatusReportResult = 2
+	// The Control Plane does not know the Job.
+	JobStatusReportResult_JOB_STATUS_REPORT_UNKNOWN_JOB JobStatusReportResult = 3
+	// The report contradicts the authoritative state, for example a second and
+	// different terminal outcome, or a report from a process the Job is not
+	// assigned to. The Job keeps the state it already recorded.
+	JobStatusReportResult_JOB_STATUS_REPORT_CONFLICT JobStatusReportResult = 4
+)
+
+// Enum value maps for JobStatusReportResult.
+var (
+	JobStatusReportResult_name = map[int32]string{
+		0: "JOB_STATUS_REPORT_RESULT_UNSPECIFIED",
+		1: "JOB_STATUS_REPORT_APPLIED",
+		2: "JOB_STATUS_REPORT_DUPLICATE",
+		3: "JOB_STATUS_REPORT_UNKNOWN_JOB",
+		4: "JOB_STATUS_REPORT_CONFLICT",
+	}
+	JobStatusReportResult_value = map[string]int32{
+		"JOB_STATUS_REPORT_RESULT_UNSPECIFIED": 0,
+		"JOB_STATUS_REPORT_APPLIED":            1,
+		"JOB_STATUS_REPORT_DUPLICATE":          2,
+		"JOB_STATUS_REPORT_UNKNOWN_JOB":        3,
+		"JOB_STATUS_REPORT_CONFLICT":           4,
+	}
+)
+
+func (x JobStatusReportResult) Enum() *JobStatusReportResult {
+	p := new(JobStatusReportResult)
+	*p = x
+	return p
+}
+
+func (x JobStatusReportResult) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (JobStatusReportResult) Descriptor() protoreflect.EnumDescriptor {
+	return file_runner_v1_runner_proto_enumTypes[7].Descriptor()
+}
+
+func (JobStatusReportResult) Type() protoreflect.EnumType {
+	return &file_runner_v1_runner_proto_enumTypes[7]
+}
+
+func (x JobStatusReportResult) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use JobStatusReportResult.Descriptor instead.
+func (JobStatusReportResult) EnumDescriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{7}
+}
+
+// JobLifecycleState mirrors the Control Plane Job lifecycle. It is reported
+// back to the Runner for correlation and diagnosis only.
+type JobLifecycleState int32
+
+const (
+	JobLifecycleState_JOB_LIFECYCLE_STATE_UNSPECIFIED JobLifecycleState = 0
+	JobLifecycleState_JOB_LIFECYCLE_CREATED           JobLifecycleState = 1
+	JobLifecycleState_JOB_LIFECYCLE_QUEUED            JobLifecycleState = 2
+	JobLifecycleState_JOB_LIFECYCLE_RUNNING           JobLifecycleState = 3
+	JobLifecycleState_JOB_LIFECYCLE_SUCCEEDED         JobLifecycleState = 4
+	JobLifecycleState_JOB_LIFECYCLE_FAILED            JobLifecycleState = 5
+	JobLifecycleState_JOB_LIFECYCLE_CANCELLED         JobLifecycleState = 6
+)
+
+// Enum value maps for JobLifecycleState.
+var (
+	JobLifecycleState_name = map[int32]string{
+		0: "JOB_LIFECYCLE_STATE_UNSPECIFIED",
+		1: "JOB_LIFECYCLE_CREATED",
+		2: "JOB_LIFECYCLE_QUEUED",
+		3: "JOB_LIFECYCLE_RUNNING",
+		4: "JOB_LIFECYCLE_SUCCEEDED",
+		5: "JOB_LIFECYCLE_FAILED",
+		6: "JOB_LIFECYCLE_CANCELLED",
+	}
+	JobLifecycleState_value = map[string]int32{
+		"JOB_LIFECYCLE_STATE_UNSPECIFIED": 0,
+		"JOB_LIFECYCLE_CREATED":           1,
+		"JOB_LIFECYCLE_QUEUED":            2,
+		"JOB_LIFECYCLE_RUNNING":           3,
+		"JOB_LIFECYCLE_SUCCEEDED":         4,
+		"JOB_LIFECYCLE_FAILED":            5,
+		"JOB_LIFECYCLE_CANCELLED":         6,
+	}
+)
+
+func (x JobLifecycleState) Enum() *JobLifecycleState {
+	p := new(JobLifecycleState)
+	*p = x
+	return p
+}
+
+func (x JobLifecycleState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (JobLifecycleState) Descriptor() protoreflect.EnumDescriptor {
+	return file_runner_v1_runner_proto_enumTypes[8].Descriptor()
+}
+
+func (JobLifecycleState) Type() protoreflect.EnumType {
+	return &file_runner_v1_runner_proto_enumTypes[8]
+}
+
+func (x JobLifecycleState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use JobLifecycleState.Descriptor instead.
+func (JobLifecycleState) EnumDescriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{8}
 }
 
 type GetInfoRequest struct {
@@ -1032,6 +1282,264 @@ func (x *RunJobResponse) GetInstanceId() string {
 	return ""
 }
 
+// ReportJobStatusRequest carries one observation made by the Runner process
+// that executes a Job. It reports what happened, never what the Control Plane
+// should do about it.
+type ReportJobStatusRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Protocol contract understood by the caller, for example "runner.v1". A
+	// Control Plane that does not implement the value must reject the report
+	// instead of guessing the meaning of the remaining fields.
+	ProtocolVersion string `protobuf:"bytes,1,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	// Control Plane identity of the Job, as dispatched in RunJobRequest.
+	JobId string `protobuf:"bytes,2,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	// Runner process reporting the execution. A report from a process the Job is
+	// not assigned to is refused, because only the executing process observes
+	// these facts.
+	RunnerId   string            `protobuf:"bytes,3,opt,name=runner_id,json=runnerId,proto3" json:"runner_id,omitempty"`
+	InstanceId string            `protobuf:"bytes,4,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	State      JobExecutionState `protobuf:"varint,5,opt,name=state,proto3,enum=zeroyaml.runner.v1.JobExecutionState" json:"state,omitempty"`
+	// When the Runner started executing the Job. Every report repeats it,
+	// including a terminal one, so that a lost running report cannot leave a
+	// finished Job without a start time.
+	StartedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	// When execution ended. Set only for a terminal state.
+	CompletedAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
+	// Terminal outcome detail. Set only for a terminal state.
+	Result        *JobExecutionResult `protobuf:"bytes,8,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReportJobStatusRequest) Reset() {
+	*x = ReportJobStatusRequest{}
+	mi := &file_runner_v1_runner_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReportJobStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReportJobStatusRequest) ProtoMessage() {}
+
+func (x *ReportJobStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runner_v1_runner_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReportJobStatusRequest.ProtoReflect.Descriptor instead.
+func (*ReportJobStatusRequest) Descriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ReportJobStatusRequest) GetProtocolVersion() string {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return ""
+}
+
+func (x *ReportJobStatusRequest) GetJobId() string {
+	if x != nil {
+		return x.JobId
+	}
+	return ""
+}
+
+func (x *ReportJobStatusRequest) GetRunnerId() string {
+	if x != nil {
+		return x.RunnerId
+	}
+	return ""
+}
+
+func (x *ReportJobStatusRequest) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+func (x *ReportJobStatusRequest) GetState() JobExecutionState {
+	if x != nil {
+		return x.State
+	}
+	return JobExecutionState_JOB_EXECUTION_STATE_UNSPECIFIED
+}
+
+func (x *ReportJobStatusRequest) GetStartedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartedAt
+	}
+	return nil
+}
+
+func (x *ReportJobStatusRequest) GetCompletedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CompletedAt
+	}
+	return nil
+}
+
+func (x *ReportJobStatusRequest) GetResult() *JobExecutionResult {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+// JobExecutionResult describes how one execution ended.
+type JobExecutionResult struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Exit code reported by the executed command. It is absent when no command
+	// produced one, for example when the Runner could not start it or stopped it
+	// on timeout, so a caller must never read an absent code as a successful 0.
+	ExitCode *int32 `protobuf:"varint,1,opt,name=exit_code,json=exitCode,proto3,oneof" json:"exit_code,omitempty"`
+	// Set only when state is JOB_EXECUTION_FAILED.
+	FailureReason JobExecutionFailureReason `protobuf:"varint,2,opt,name=failure_reason,json=failureReason,proto3,enum=zeroyaml.runner.v1.JobExecutionFailureReason" json:"failure_reason,omitempty"`
+	// Operator-facing diagnostic. It must not contain credentials, environment
+	// values, or captured command output; logs are a separate contract.
+	FailureMessage string `protobuf:"bytes,3,opt,name=failure_message,json=failureMessage,proto3" json:"failure_message,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *JobExecutionResult) Reset() {
+	*x = JobExecutionResult{}
+	mi := &file_runner_v1_runner_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JobExecutionResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JobExecutionResult) ProtoMessage() {}
+
+func (x *JobExecutionResult) ProtoReflect() protoreflect.Message {
+	mi := &file_runner_v1_runner_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JobExecutionResult.ProtoReflect.Descriptor instead.
+func (*JobExecutionResult) Descriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *JobExecutionResult) GetExitCode() int32 {
+	if x != nil && x.ExitCode != nil {
+		return *x.ExitCode
+	}
+	return 0
+}
+
+func (x *JobExecutionResult) GetFailureReason() JobExecutionFailureReason {
+	if x != nil {
+		return x.FailureReason
+	}
+	return JobExecutionFailureReason_JOB_EXECUTION_FAILURE_REASON_UNSPECIFIED
+}
+
+func (x *JobExecutionResult) GetFailureMessage() string {
+	if x != nil {
+		return x.FailureMessage
+	}
+	return ""
+}
+
+// ReportJobStatusResponse states how the Control Plane reconciled one report
+// against the Job state it owns.
+type ReportJobStatusResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Echo of the reported Job identity so a caller can correlate the answer
+	// without relying on call ordering.
+	JobId  string                `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	Result JobStatusReportResult `protobuf:"varint,2,opt,name=result,proto3,enum=zeroyaml.runner.v1.JobStatusReportResult" json:"result,omitempty"`
+	// Authoritative Job state after reconciliation. It is unspecified only when
+	// the Control Plane does not know the Job. A Runner may use it to learn that
+	// its Job was already cancelled, but it must not derive policy from it.
+	JobState JobLifecycleState `protobuf:"varint,3,opt,name=job_state,json=jobState,proto3,enum=zeroyaml.runner.v1.JobLifecycleState" json:"job_state,omitempty"`
+	// Operator-facing diagnostic. It must not contain credentials or payloads.
+	Message       string `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReportJobStatusResponse) Reset() {
+	*x = ReportJobStatusResponse{}
+	mi := &file_runner_v1_runner_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReportJobStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReportJobStatusResponse) ProtoMessage() {}
+
+func (x *ReportJobStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runner_v1_runner_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReportJobStatusResponse.ProtoReflect.Descriptor instead.
+func (*ReportJobStatusResponse) Descriptor() ([]byte, []int) {
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ReportJobStatusResponse) GetJobId() string {
+	if x != nil {
+		return x.JobId
+	}
+	return ""
+}
+
+func (x *ReportJobStatusResponse) GetResult() JobStatusReportResult {
+	if x != nil {
+		return x.Result
+	}
+	return JobStatusReportResult_JOB_STATUS_REPORT_RESULT_UNSPECIFIED
+}
+
+func (x *ReportJobStatusResponse) GetJobState() JobLifecycleState {
+	if x != nil {
+		return x.JobState
+	}
+	return JobLifecycleState_JOB_LIFECYCLE_STATE_UNSPECIFIED
+}
+
+func (x *ReportJobStatusResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 type PingRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
@@ -1041,7 +1549,7 @@ type PingRequest struct {
 
 func (x *PingRequest) Reset() {
 	*x = PingRequest{}
-	mi := &file_runner_v1_runner_proto_msgTypes[12]
+	mi := &file_runner_v1_runner_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1053,7 +1561,7 @@ func (x *PingRequest) String() string {
 func (*PingRequest) ProtoMessage() {}
 
 func (x *PingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runner_v1_runner_proto_msgTypes[12]
+	mi := &file_runner_v1_runner_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1066,7 +1574,7 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
 func (*PingRequest) Descriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{12}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *PingRequest) GetMessage() string {
@@ -1086,7 +1594,7 @@ type PingResponse struct {
 
 func (x *PingResponse) Reset() {
 	*x = PingResponse{}
-	mi := &file_runner_v1_runner_proto_msgTypes[13]
+	mi := &file_runner_v1_runner_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1098,7 +1606,7 @@ func (x *PingResponse) String() string {
 func (*PingResponse) ProtoMessage() {}
 
 func (x *PingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runner_v1_runner_proto_msgTypes[13]
+	mi := &file_runner_v1_runner_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1111,7 +1619,7 @@ func (x *PingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
 func (*PingResponse) Descriptor() ([]byte, []int) {
-	return file_runner_v1_runner_proto_rawDescGZIP(), []int{13}
+	return file_runner_v1_runner_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *PingResponse) GetMessage() string {
@@ -1132,7 +1640,7 @@ var File_runner_v1_runner_proto protoreflect.FileDescriptor
 
 const file_runner_v1_runner_proto_rawDesc = "" +
 	"\n" +
-	"\x16runner/v1/runner.proto\x12\x12zeroyaml.runner.v1\"\x10\n" +
+	"\x16runner/v1/runner.proto\x12\x12zeroyaml.runner.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x10\n" +
 	"\x0eGetInfoRequest\"\xc9\x02\n" +
 	"\n" +
 	"RunnerInfo\x12\x1b\n" +
@@ -1190,7 +1698,29 @@ const file_runner_v1_runner_proto_rawDesc = "" +
 	"\amessage\x18\x04 \x01(\tR\amessage\x12\x1b\n" +
 	"\trunner_id\x18\x05 \x01(\tR\brunnerId\x12\x1f\n" +
 	"\vinstance_id\x18\x06 \x01(\tR\n" +
-	"instanceId\"'\n" +
+	"instanceId\"\x8f\x03\n" +
+	"\x16ReportJobStatusRequest\x12)\n" +
+	"\x10protocol_version\x18\x01 \x01(\tR\x0fprotocolVersion\x12\x15\n" +
+	"\x06job_id\x18\x02 \x01(\tR\x05jobId\x12\x1b\n" +
+	"\trunner_id\x18\x03 \x01(\tR\brunnerId\x12\x1f\n" +
+	"\vinstance_id\x18\x04 \x01(\tR\n" +
+	"instanceId\x12;\n" +
+	"\x05state\x18\x05 \x01(\x0e2%.zeroyaml.runner.v1.JobExecutionStateR\x05state\x129\n" +
+	"\n" +
+	"started_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12=\n" +
+	"\fcompleted_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\vcompletedAt\x12>\n" +
+	"\x06result\x18\b \x01(\v2&.zeroyaml.runner.v1.JobExecutionResultR\x06result\"\xc3\x01\n" +
+	"\x12JobExecutionResult\x12 \n" +
+	"\texit_code\x18\x01 \x01(\x05H\x00R\bexitCode\x88\x01\x01\x12T\n" +
+	"\x0efailure_reason\x18\x02 \x01(\x0e2-.zeroyaml.runner.v1.JobExecutionFailureReasonR\rfailureReason\x12'\n" +
+	"\x0ffailure_message\x18\x03 \x01(\tR\x0efailureMessageB\f\n" +
+	"\n" +
+	"_exit_code\"\xd1\x01\n" +
+	"\x17ReportJobStatusResponse\x12\x15\n" +
+	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12A\n" +
+	"\x06result\x18\x02 \x01(\x0e2).zeroyaml.runner.v1.JobStatusReportResultR\x06result\x12B\n" +
+	"\tjob_state\x18\x03 \x01(\x0e2%.zeroyaml.runner.v1.JobLifecycleStateR\bjobState\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\"'\n" +
 	"\vPingRequest\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"O\n" +
 	"\fPingResponse\x12\x18\n" +
@@ -1218,14 +1748,41 @@ const file_runner_v1_runner_proto_rawDesc = "" +
 	"\x12JobRejectionReason\x12$\n" +
 	" JOB_REJECTION_REASON_UNSPECIFIED\x10\x00\x12.\n" +
 	"*JOB_REJECTION_UNSUPPORTED_PROTOCOL_VERSION\x10\x01\x12$\n" +
-	" JOB_REJECTION_RUNNER_UNAVAILABLE\x10\x022\xfa\x01\n" +
+	" JOB_REJECTION_RUNNER_UNAVAILABLE\x10\x02*\x8a\x01\n" +
+	"\x11JobExecutionState\x12#\n" +
+	"\x1fJOB_EXECUTION_STATE_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15JOB_EXECUTION_RUNNING\x10\x01\x12\x1b\n" +
+	"\x17JOB_EXECUTION_SUCCEEDED\x10\x02\x12\x18\n" +
+	"\x14JOB_EXECUTION_FAILED\x10\x03*\xe5\x01\n" +
+	"\x19JobExecutionFailureReason\x12,\n" +
+	"(JOB_EXECUTION_FAILURE_REASON_UNSPECIFIED\x10\x00\x12'\n" +
+	"#JOB_EXECUTION_FAILURE_NON_ZERO_EXIT\x10\x01\x12!\n" +
+	"\x1dJOB_EXECUTION_FAILURE_TIMEOUT\x10\x02\x12#\n" +
+	"\x1fJOB_EXECUTION_FAILURE_CANCELLED\x10\x03\x12)\n" +
+	"%JOB_EXECUTION_FAILURE_EXECUTION_ERROR\x10\x04*\xc4\x01\n" +
+	"\x15JobStatusReportResult\x12(\n" +
+	"$JOB_STATUS_REPORT_RESULT_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19JOB_STATUS_REPORT_APPLIED\x10\x01\x12\x1f\n" +
+	"\x1bJOB_STATUS_REPORT_DUPLICATE\x10\x02\x12!\n" +
+	"\x1dJOB_STATUS_REPORT_UNKNOWN_JOB\x10\x03\x12\x1e\n" +
+	"\x1aJOB_STATUS_REPORT_CONFLICT\x10\x04*\xdc\x01\n" +
+	"\x11JobLifecycleState\x12#\n" +
+	"\x1fJOB_LIFECYCLE_STATE_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15JOB_LIFECYCLE_CREATED\x10\x01\x12\x18\n" +
+	"\x14JOB_LIFECYCLE_QUEUED\x10\x02\x12\x19\n" +
+	"\x15JOB_LIFECYCLE_RUNNING\x10\x03\x12\x1b\n" +
+	"\x17JOB_LIFECYCLE_SUCCEEDED\x10\x04\x12\x18\n" +
+	"\x14JOB_LIFECYCLE_FAILED\x10\x05\x12\x1b\n" +
+	"\x17JOB_LIFECYCLE_CANCELLED\x10\x062\xfa\x01\n" +
 	"\rRunnerService\x12I\n" +
 	"\x04Ping\x12\x1f.zeroyaml.runner.v1.PingRequest\x1a .zeroyaml.runner.v1.PingResponse\x12M\n" +
 	"\aGetInfo\x12\".zeroyaml.runner.v1.GetInfoRequest\x1a\x1e.zeroyaml.runner.v1.RunnerInfo\x12O\n" +
 	"\x06RunJob\x12!.zeroyaml.runner.v1.RunJobRequest\x1a\".zeroyaml.runner.v1.RunJobResponse2\xd8\x01\n" +
 	"\x19RunnerRegistrationService\x12a\n" +
 	"\bRegister\x12).zeroyaml.runner.v1.RegisterRunnerRequest\x1a*.zeroyaml.runner.v1.RegisterRunnerResponse\x12X\n" +
-	"\tHeartbeat\x12$.zeroyaml.runner.v1.HeartbeatRequest\x1a%.zeroyaml.runner.v1.HeartbeatResponseBn\n" +
+	"\tHeartbeat\x12$.zeroyaml.runner.v1.HeartbeatRequest\x1a%.zeroyaml.runner.v1.HeartbeatResponse2\x87\x01\n" +
+	"\x19JobExecutionStatusService\x12j\n" +
+	"\x0fReportJobStatus\x12*.zeroyaml.runner.v1.ReportJobStatusRequest\x1a+.zeroyaml.runner.v1.ReportJobStatusResponseBn\n" +
 	"\x1fio.zeroyaml.contracts.runner.v1B\vRunnerProtoP\x01Z<github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1;runnerv1b\x06proto3"
 
 var (
@@ -1240,57 +1797,74 @@ func file_runner_v1_runner_proto_rawDescGZIP() []byte {
 	return file_runner_v1_runner_proto_rawDescData
 }
 
-var file_runner_v1_runner_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_runner_v1_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_runner_v1_runner_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
+var file_runner_v1_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_runner_v1_runner_proto_goTypes = []any{
-	(HeartbeatResult)(0),           // 0: zeroyaml.runner.v1.HeartbeatResult
-	(RunnerStatus)(0),              // 1: zeroyaml.runner.v1.RunnerStatus
-	(RegistrationResult)(0),        // 2: zeroyaml.runner.v1.RegistrationResult
-	(JobAcceptance)(0),             // 3: zeroyaml.runner.v1.JobAcceptance
-	(JobRejectionReason)(0),        // 4: zeroyaml.runner.v1.JobRejectionReason
-	(*GetInfoRequest)(nil),         // 5: zeroyaml.runner.v1.GetInfoRequest
-	(*RunnerInfo)(nil),             // 6: zeroyaml.runner.v1.RunnerInfo
-	(*RunnerCapabilities)(nil),     // 7: zeroyaml.runner.v1.RunnerCapabilities
-	(*RegisterRunnerRequest)(nil),  // 8: zeroyaml.runner.v1.RegisterRunnerRequest
-	(*RegisterRunnerResponse)(nil), // 9: zeroyaml.runner.v1.RegisterRunnerResponse
-	(*HeartbeatRequest)(nil),       // 10: zeroyaml.runner.v1.HeartbeatRequest
-	(*HeartbeatResponse)(nil),      // 11: zeroyaml.runner.v1.HeartbeatResponse
-	(*RunJobRequest)(nil),          // 12: zeroyaml.runner.v1.RunJobRequest
-	(*JobSpecification)(nil),       // 13: zeroyaml.runner.v1.JobSpecification
-	(*JobRepository)(nil),          // 14: zeroyaml.runner.v1.JobRepository
-	(*JobExecution)(nil),           // 15: zeroyaml.runner.v1.JobExecution
-	(*RunJobResponse)(nil),         // 16: zeroyaml.runner.v1.RunJobResponse
-	(*PingRequest)(nil),            // 17: zeroyaml.runner.v1.PingRequest
-	(*PingResponse)(nil),           // 18: zeroyaml.runner.v1.PingResponse
-	nil,                            // 19: zeroyaml.runner.v1.RunnerCapabilities.LabelsEntry
+	(HeartbeatResult)(0),            // 0: zeroyaml.runner.v1.HeartbeatResult
+	(RunnerStatus)(0),               // 1: zeroyaml.runner.v1.RunnerStatus
+	(RegistrationResult)(0),         // 2: zeroyaml.runner.v1.RegistrationResult
+	(JobAcceptance)(0),              // 3: zeroyaml.runner.v1.JobAcceptance
+	(JobRejectionReason)(0),         // 4: zeroyaml.runner.v1.JobRejectionReason
+	(JobExecutionState)(0),          // 5: zeroyaml.runner.v1.JobExecutionState
+	(JobExecutionFailureReason)(0),  // 6: zeroyaml.runner.v1.JobExecutionFailureReason
+	(JobStatusReportResult)(0),      // 7: zeroyaml.runner.v1.JobStatusReportResult
+	(JobLifecycleState)(0),          // 8: zeroyaml.runner.v1.JobLifecycleState
+	(*GetInfoRequest)(nil),          // 9: zeroyaml.runner.v1.GetInfoRequest
+	(*RunnerInfo)(nil),              // 10: zeroyaml.runner.v1.RunnerInfo
+	(*RunnerCapabilities)(nil),      // 11: zeroyaml.runner.v1.RunnerCapabilities
+	(*RegisterRunnerRequest)(nil),   // 12: zeroyaml.runner.v1.RegisterRunnerRequest
+	(*RegisterRunnerResponse)(nil),  // 13: zeroyaml.runner.v1.RegisterRunnerResponse
+	(*HeartbeatRequest)(nil),        // 14: zeroyaml.runner.v1.HeartbeatRequest
+	(*HeartbeatResponse)(nil),       // 15: zeroyaml.runner.v1.HeartbeatResponse
+	(*RunJobRequest)(nil),           // 16: zeroyaml.runner.v1.RunJobRequest
+	(*JobSpecification)(nil),        // 17: zeroyaml.runner.v1.JobSpecification
+	(*JobRepository)(nil),           // 18: zeroyaml.runner.v1.JobRepository
+	(*JobExecution)(nil),            // 19: zeroyaml.runner.v1.JobExecution
+	(*RunJobResponse)(nil),          // 20: zeroyaml.runner.v1.RunJobResponse
+	(*ReportJobStatusRequest)(nil),  // 21: zeroyaml.runner.v1.ReportJobStatusRequest
+	(*JobExecutionResult)(nil),      // 22: zeroyaml.runner.v1.JobExecutionResult
+	(*ReportJobStatusResponse)(nil), // 23: zeroyaml.runner.v1.ReportJobStatusResponse
+	(*PingRequest)(nil),             // 24: zeroyaml.runner.v1.PingRequest
+	(*PingResponse)(nil),            // 25: zeroyaml.runner.v1.PingResponse
+	nil,                             // 26: zeroyaml.runner.v1.RunnerCapabilities.LabelsEntry
+	(*timestamppb.Timestamp)(nil),   // 27: google.protobuf.Timestamp
 }
 var file_runner_v1_runner_proto_depIdxs = []int32{
-	7,  // 0: zeroyaml.runner.v1.RunnerInfo.capabilities:type_name -> zeroyaml.runner.v1.RunnerCapabilities
+	11, // 0: zeroyaml.runner.v1.RunnerInfo.capabilities:type_name -> zeroyaml.runner.v1.RunnerCapabilities
 	1,  // 1: zeroyaml.runner.v1.RunnerInfo.status:type_name -> zeroyaml.runner.v1.RunnerStatus
-	19, // 2: zeroyaml.runner.v1.RunnerCapabilities.labels:type_name -> zeroyaml.runner.v1.RunnerCapabilities.LabelsEntry
-	6,  // 3: zeroyaml.runner.v1.RegisterRunnerRequest.runner:type_name -> zeroyaml.runner.v1.RunnerInfo
+	26, // 2: zeroyaml.runner.v1.RunnerCapabilities.labels:type_name -> zeroyaml.runner.v1.RunnerCapabilities.LabelsEntry
+	10, // 3: zeroyaml.runner.v1.RegisterRunnerRequest.runner:type_name -> zeroyaml.runner.v1.RunnerInfo
 	2,  // 4: zeroyaml.runner.v1.RegisterRunnerResponse.result:type_name -> zeroyaml.runner.v1.RegistrationResult
 	0,  // 5: zeroyaml.runner.v1.HeartbeatResponse.result:type_name -> zeroyaml.runner.v1.HeartbeatResult
-	13, // 6: zeroyaml.runner.v1.RunJobRequest.job:type_name -> zeroyaml.runner.v1.JobSpecification
-	14, // 7: zeroyaml.runner.v1.JobSpecification.repository:type_name -> zeroyaml.runner.v1.JobRepository
-	15, // 8: zeroyaml.runner.v1.JobSpecification.execution:type_name -> zeroyaml.runner.v1.JobExecution
+	17, // 6: zeroyaml.runner.v1.RunJobRequest.job:type_name -> zeroyaml.runner.v1.JobSpecification
+	18, // 7: zeroyaml.runner.v1.JobSpecification.repository:type_name -> zeroyaml.runner.v1.JobRepository
+	19, // 8: zeroyaml.runner.v1.JobSpecification.execution:type_name -> zeroyaml.runner.v1.JobExecution
 	3,  // 9: zeroyaml.runner.v1.RunJobResponse.acceptance:type_name -> zeroyaml.runner.v1.JobAcceptance
 	4,  // 10: zeroyaml.runner.v1.RunJobResponse.rejection_reason:type_name -> zeroyaml.runner.v1.JobRejectionReason
-	17, // 11: zeroyaml.runner.v1.RunnerService.Ping:input_type -> zeroyaml.runner.v1.PingRequest
-	5,  // 12: zeroyaml.runner.v1.RunnerService.GetInfo:input_type -> zeroyaml.runner.v1.GetInfoRequest
-	12, // 13: zeroyaml.runner.v1.RunnerService.RunJob:input_type -> zeroyaml.runner.v1.RunJobRequest
-	8,  // 14: zeroyaml.runner.v1.RunnerRegistrationService.Register:input_type -> zeroyaml.runner.v1.RegisterRunnerRequest
-	10, // 15: zeroyaml.runner.v1.RunnerRegistrationService.Heartbeat:input_type -> zeroyaml.runner.v1.HeartbeatRequest
-	18, // 16: zeroyaml.runner.v1.RunnerService.Ping:output_type -> zeroyaml.runner.v1.PingResponse
-	6,  // 17: zeroyaml.runner.v1.RunnerService.GetInfo:output_type -> zeroyaml.runner.v1.RunnerInfo
-	16, // 18: zeroyaml.runner.v1.RunnerService.RunJob:output_type -> zeroyaml.runner.v1.RunJobResponse
-	9,  // 19: zeroyaml.runner.v1.RunnerRegistrationService.Register:output_type -> zeroyaml.runner.v1.RegisterRunnerResponse
-	11, // 20: zeroyaml.runner.v1.RunnerRegistrationService.Heartbeat:output_type -> zeroyaml.runner.v1.HeartbeatResponse
-	16, // [16:21] is the sub-list for method output_type
-	11, // [11:16] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	5,  // 11: zeroyaml.runner.v1.ReportJobStatusRequest.state:type_name -> zeroyaml.runner.v1.JobExecutionState
+	27, // 12: zeroyaml.runner.v1.ReportJobStatusRequest.started_at:type_name -> google.protobuf.Timestamp
+	27, // 13: zeroyaml.runner.v1.ReportJobStatusRequest.completed_at:type_name -> google.protobuf.Timestamp
+	22, // 14: zeroyaml.runner.v1.ReportJobStatusRequest.result:type_name -> zeroyaml.runner.v1.JobExecutionResult
+	6,  // 15: zeroyaml.runner.v1.JobExecutionResult.failure_reason:type_name -> zeroyaml.runner.v1.JobExecutionFailureReason
+	7,  // 16: zeroyaml.runner.v1.ReportJobStatusResponse.result:type_name -> zeroyaml.runner.v1.JobStatusReportResult
+	8,  // 17: zeroyaml.runner.v1.ReportJobStatusResponse.job_state:type_name -> zeroyaml.runner.v1.JobLifecycleState
+	24, // 18: zeroyaml.runner.v1.RunnerService.Ping:input_type -> zeroyaml.runner.v1.PingRequest
+	9,  // 19: zeroyaml.runner.v1.RunnerService.GetInfo:input_type -> zeroyaml.runner.v1.GetInfoRequest
+	16, // 20: zeroyaml.runner.v1.RunnerService.RunJob:input_type -> zeroyaml.runner.v1.RunJobRequest
+	12, // 21: zeroyaml.runner.v1.RunnerRegistrationService.Register:input_type -> zeroyaml.runner.v1.RegisterRunnerRequest
+	14, // 22: zeroyaml.runner.v1.RunnerRegistrationService.Heartbeat:input_type -> zeroyaml.runner.v1.HeartbeatRequest
+	21, // 23: zeroyaml.runner.v1.JobExecutionStatusService.ReportJobStatus:input_type -> zeroyaml.runner.v1.ReportJobStatusRequest
+	25, // 24: zeroyaml.runner.v1.RunnerService.Ping:output_type -> zeroyaml.runner.v1.PingResponse
+	10, // 25: zeroyaml.runner.v1.RunnerService.GetInfo:output_type -> zeroyaml.runner.v1.RunnerInfo
+	20, // 26: zeroyaml.runner.v1.RunnerService.RunJob:output_type -> zeroyaml.runner.v1.RunJobResponse
+	13, // 27: zeroyaml.runner.v1.RunnerRegistrationService.Register:output_type -> zeroyaml.runner.v1.RegisterRunnerResponse
+	15, // 28: zeroyaml.runner.v1.RunnerRegistrationService.Heartbeat:output_type -> zeroyaml.runner.v1.HeartbeatResponse
+	23, // 29: zeroyaml.runner.v1.JobExecutionStatusService.ReportJobStatus:output_type -> zeroyaml.runner.v1.ReportJobStatusResponse
+	24, // [24:30] is the sub-list for method output_type
+	18, // [18:24] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_runner_v1_runner_proto_init() }
@@ -1298,15 +1872,16 @@ func file_runner_v1_runner_proto_init() {
 	if File_runner_v1_runner_proto != nil {
 		return
 	}
+	file_runner_v1_runner_proto_msgTypes[13].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runner_v1_runner_proto_rawDesc), len(file_runner_v1_runner_proto_rawDesc)),
-			NumEnums:      5,
-			NumMessages:   15,
+			NumEnums:      9,
+			NumMessages:   18,
 			NumExtensions: 0,
-			NumServices:   2,
+			NumServices:   3,
 		},
 		GoTypes:           file_runner_v1_runner_proto_goTypes,
 		DependencyIndexes: file_runner_v1_runner_proto_depIdxs,

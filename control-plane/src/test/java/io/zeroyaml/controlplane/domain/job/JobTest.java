@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -65,6 +66,17 @@ class JobTest {
 		assertEquals(JobStatus.FAILED, job.status());
 		assertEquals(failure, job.failure().orElseThrow());
 		assertEquals(COMPLETED_AT, job.completedAt().orElseThrow());
+	}
+
+	@Test
+	void retainsTheExitCodeOfAFailedCommandAndKeepsAnAbsentCodeAbsent() {
+		var withExitCode = new JobFailure("NON_ZERO_EXIT", "The command exited with code 2", 2);
+		var withoutExitCode = new JobFailure("TIMEOUT", "The job exceeded its time budget");
+
+		assertEquals(OptionalInt.of(2), withExitCode.exit());
+		// A stopped command produces no code, and an absent code must never be
+		// read as a successful 0.
+		assertEquals(OptionalInt.empty(), withoutExitCode.exit());
 	}
 
 	@Test
