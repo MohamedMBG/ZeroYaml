@@ -1,6 +1,6 @@
 # ZeroYAML Project Progress
 
-Last updated: 2026-09-23 (Phase 2: Runner execution status reporting)
+Last updated: 2026-09-23 (Phase 2: GitHub webhook endpoint proposed for issue #16)
 
 Current phase: 2
 
@@ -10,9 +10,11 @@ Phase gate: work in a later phase is locked until the current phase parent issue
 
 Phase 1 — Foundation & Core Runtime is complete. Issue #33 and every child issue (#1-#15) are closed: the control-plane and runner foundations are bootstrapped, the shared runner gRPC contract is checked in, and the Control Plane can call `RunnerService.Ping` through a generated Java client. Runner startup configuration is externalized, so local and future deployment environments provide explicit endpoint, identity, and version settings. Runner shutdown drains in-flight RPCs within a bounded timeout and releases the listener instead of dropping work. The Control Plane hosts a `RunnerRegistrationService` gRPC server backed by an in-memory registry, and the Runner registers once at startup before serving; a Control Plane that is unreachable or that reports an identity conflict leaves the Runner status unavailable instead of silently reporting readiness. The registration service also exposes `Heartbeat`, reusing the `(runner_id, instance_id)` identity pair: a registered Runner sends a heartbeat at a configurable interval, and the Control Plane derives `HEALTHY` / `UNAVAILABLE` liveness for each registry entry from the elapsed time since its last acknowledged registration or heartbeat, with no background sweep or distributed failure detector. The core Job model and the `RunJob` gRPC contract are defined and the Runner handles `RunJob` dispatch (still rejecting every job with `JOB_REJECTION_RUNNER_UNAVAILABLE`, since execution is out of Phase 1 scope). Local infrastructure is available for development. CI/CD validates both services, requires progress updates on pull requests, protects `main` behind reviewed changes, and blocks pull requests for later phases.
 
-Phase 2 — GitHub Integration & First E2E Pipeline is the active delivery phase (parent issue #34). Its remaining child issues are open backlog: GitHub webhook endpoint and signature verification, repository connection model and metadata persistence, GitHub event normalization, minimal pipeline model and inference, executable Job creation from a pipeline, minimal healthy Runner selection, the Runner Docker execution sandbox, log streaming, execution/Job state persistence, lifecycle event publishing, the first end-to-end pipeline scenario, an end-to-end test, and local workflow documentation. Phases 3-7 remain locked backlog.
+Phase 2 — GitHub Integration & First E2E Pipeline is the active delivery phase (parent issue #34). Its remaining child issues are open backlog: GitHub webhook signature verification, repository connection model and metadata persistence, GitHub event normalization, minimal pipeline model and inference, executable Job creation from a pipeline, minimal healthy Runner selection, the Runner Docker execution sandbox, log streaming, execution/Job state persistence, lifecycle event publishing, the first end-to-end pipeline scenario, an end-to-end test, and local workflow documentation. Phases 3-7 remain locked backlog.
 
-The status-reporting path for issue #27 is implemented locally but not yet merged. `JobExecutionStatusService.ReportJobStatus` carries execution facts from a Runner back to the Control Plane, which owns authoritative Job state: a running report starts a queued Job, a terminal report completes it as succeeded or failed with a reason and, where available, an exit code. Duplicate, late, and contradicting reports are answered explicitly and never change recorded state, and a terminal report repeats the execution start time so a lost running report cannot strand a finished execution. The Control Plane now serves every Runner-facing gRPC service on one endpoint, keeping the existing `zeroyaml.registration.port` setting. The Runner side is a reporting client that execution support will call; the Runner still rejects every dispatch, so nothing reports status at runtime yet.
+The status-reporting path for issue #27 is merged into `main`. `JobExecutionStatusService.ReportJobStatus` carries execution facts from a Runner back to the Control Plane, which owns authoritative Job state: a running report starts a queued Job, a terminal report completes it as succeeded or failed with a reason and, where available, an exit code. Duplicate, late, and contradicting reports are answered explicitly and never change recorded state, and a terminal report repeats the execution start time so a lost running report cannot strand a finished execution. The Control Plane now serves every Runner-facing gRPC service on one endpoint, keeping the existing `zeroyaml.registration.port` setting. The Runner side is a reporting client that execution support will call; the Runner still rejects every dispatch, so nothing reports status at runtime yet.
+
+The GitHub webhook endpoint for issue #16 is implemented locally on a task branch and not yet merged. `POST /webhooks/github` validates the delivery envelope (event and delivery headers, JSON content type, a bounded payload that opens a JSON object), answers `push` with `202 Accepted` and hands the raw body and GitHub headers to a `GitHubWebhookDeliveryHandler`, and answers `ping` and every other event `200 OK` as ignored without starting work. The handler currently only writes an audit record; signature verification (#17) and event normalization (#20) plug in behind it.
 
 ## Completed
 
@@ -41,8 +43,9 @@ The status-reporting path for issue #27 is implemented locally but not yet merge
 
 ## In progress
 
-- Issue #27, Runner execution status reporting: implemented locally on a task branch and awaiting review. The shared contract adds `JobExecutionStatusService.ReportJobStatus`, the Control Plane reconciles every report against the Job it owns, and `runner/internal/jobstatus` is the Runner-side reporting client.
-- The remaining Phase 2 child issues (#16-#26 and #28-#32) are open backlog; none have started implementation yet.
+- Issue #16, GitHub webhook endpoint: implemented locally on a task branch and awaiting review. The ingress adapter lives in `io.zeroyaml.controlplane.github.webhook` and is documented in `docs/architecture/github-webhook-ingress.md`.
+- Issue #25, Runner Docker execution sandbox: proposed in pull request #260 and awaiting review.
+- The remaining Phase 2 child issues (#17-#24, #26, and #28-#32) are open backlog.
 
 ## Roadmap
 
@@ -56,8 +59,7 @@ The status-reporting path for issue #27 is implemented locally but not yet merge
 
 ## Next steps
 
-- Review and merge issue #27 so the status-reporting contract is available to the execution work that depends on it.
-- Continue Phase 2 work: GitHub webhook endpoint and signature verification (#16, #17) are the entry point the rest of the phase depends on.
+- Review and merge issue #16, then verify webhook signatures (#17) behind the `GitHubWebhookDeliveryHandler` boundary before the endpoint is reachable from untrusted networks.
 - Define the repository connection model and persist connected repository metadata (#18, #19).
 - Normalize supported GitHub events (#20) and define the minimal pipeline model (#21) before pipeline inference (#22) and Job creation (#23).
 - Implement the Runner Docker execution sandbox (#25); it is the first caller of the status reporter and the point at which reports start flowing at runtime.
@@ -69,6 +71,7 @@ The status-reporting path for issue #27 is implemented locally but not yet merge
 - `secret-scan` and `static-analysis` are new check names. They gate merges only after the branch protection rule for `main` lists them, which follows their first successful run.
 - `.coderabbit.yaml` takes effect only once the CodeRabbit GitHub App is installed on the repository.
 - The Semgrep run excludes `go.grpc.security.grpc-server-insecure-connection` while the Runner gRPC server is deliberately plaintext. That exclusion is removed with Phase 6 transport security (issues #231-#242).
+- The webhook endpoint does not verify signatures until #17 lands, so it must not be exposed to untrusted networks in the meantime.
 
 ## Update policy
 
