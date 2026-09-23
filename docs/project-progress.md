@@ -1,6 +1,6 @@
 # ZeroYAML Project Progress
 
-Last updated: 2026-09-23 (Phase 2: Runner execution status reporting)
+Last updated: 2026-09-23 (Phase 2: Runner Docker execution sandbox proposed for issue #25)
 
 Current phase: 2
 
@@ -10,9 +10,11 @@ Phase gate: work in a later phase is locked until the current phase parent issue
 
 Phase 1 — Foundation & Core Runtime is complete. Issue #33 and every child issue (#1-#15) are closed: the control-plane and runner foundations are bootstrapped, the shared runner gRPC contract is checked in, and the Control Plane can call `RunnerService.Ping` through a generated Java client. Runner startup configuration is externalized, so local and future deployment environments provide explicit endpoint, identity, and version settings. Runner shutdown drains in-flight RPCs within a bounded timeout and releases the listener instead of dropping work. The Control Plane hosts a `RunnerRegistrationService` gRPC server backed by an in-memory registry, and the Runner registers once at startup before serving; a Control Plane that is unreachable or that reports an identity conflict leaves the Runner status unavailable instead of silently reporting readiness. The registration service also exposes `Heartbeat`, reusing the `(runner_id, instance_id)` identity pair: a registered Runner sends a heartbeat at a configurable interval, and the Control Plane derives `HEALTHY` / `UNAVAILABLE` liveness for each registry entry from the elapsed time since its last acknowledged registration or heartbeat, with no background sweep or distributed failure detector. The core Job model and the `RunJob` gRPC contract are defined and the Runner handles `RunJob` dispatch (still rejecting every job with `JOB_REJECTION_RUNNER_UNAVAILABLE`, since execution is out of Phase 1 scope). Local infrastructure is available for development. CI/CD validates both services, requires progress updates on pull requests, protects `main` behind reviewed changes, and blocks pull requests for later phases.
 
-Phase 2 — GitHub Integration & First E2E Pipeline is the active delivery phase (parent issue #34). Its remaining child issues are open backlog: GitHub webhook endpoint and signature verification, repository connection model and metadata persistence, GitHub event normalization, minimal pipeline model and inference, executable Job creation from a pipeline, minimal healthy Runner selection, the Runner Docker execution sandbox, log streaming, execution/Job state persistence, lifecycle event publishing, the first end-to-end pipeline scenario, an end-to-end test, and local workflow documentation. Phases 3-7 remain locked backlog.
+Phase 2 — GitHub Integration & First E2E Pipeline is the active delivery phase (parent issue #34). Its remaining child issues are open backlog: GitHub webhook endpoint and signature verification, repository connection model and metadata persistence, GitHub event normalization, minimal pipeline model and inference, executable Job creation from a pipeline, minimal healthy Runner selection, log streaming, execution/Job state persistence, lifecycle event publishing, the first end-to-end pipeline scenario, an end-to-end test, and local workflow documentation. Phases 3-7 remain locked backlog.
 
-The status-reporting path for issue #27 is implemented locally but not yet merged. `JobExecutionStatusService.ReportJobStatus` carries execution facts from a Runner back to the Control Plane, which owns authoritative Job state: a running report starts a queued Job, a terminal report completes it as succeeded or failed with a reason and, where available, an exit code. Duplicate, late, and contradicting reports are answered explicitly and never change recorded state, and a terminal report repeats the execution start time so a lost running report cannot strand a finished execution. The Control Plane now serves every Runner-facing gRPC service on one endpoint, keeping the existing `zeroyaml.registration.port` setting. The Runner side is a reporting client that execution support will call; the Runner still rejects every dispatch, so nothing reports status at runtime yet.
+The status-reporting path for issue #27 is merged into `main`. `JobExecutionStatusService.ReportJobStatus` carries execution facts from a Runner back to the Control Plane, which owns authoritative Job state: a running report starts a queued Job, a terminal report completes it as succeeded or failed with a reason and, where available, an exit code. Duplicate, late, and contradicting reports are answered explicitly and never change recorded state, and a terminal report repeats the execution start time so a lost running report cannot strand a finished execution. The Control Plane now serves every Runner-facing gRPC service on one endpoint, keeping the existing `zeroyaml.registration.port` setting. On `main`, the Runner side is a reporting client that nothing calls yet, because the Runner still rejects every dispatch.
+
+The Runner Docker execution sandbox for issue #25 is implemented locally on a task branch and not yet merged. With it, a Runner whose Docker daemon answers at startup and whose registration was accepted reports `accepting_work = true`, and each accepted `RunJob` starts a background execution: a workspace volume, a checkout container that fetches the dispatched revision, and a Job container that runs the dispatched command as its entrypoint in the dispatched working directory, under memory, process-count, and `no-new-privileges` bounds and a configurable timeout. Every container and the volume are removed on success, failure, timeout, and cancellation, and each execution sends a running and a terminal status report through the issue #27 reporter. Job image and timeout are Runner configuration because the `runner.v1` contract does not carry them yet.
 
 ## Completed
 
@@ -41,8 +43,8 @@ The status-reporting path for issue #27 is implemented locally but not yet merge
 
 ## In progress
 
-- Issue #27, Runner execution status reporting: implemented locally on a task branch and awaiting review. The shared contract adds `JobExecutionStatusService.ReportJobStatus`, the Control Plane reconciles every report against the Job it owns, and `runner/internal/jobstatus` is the Runner-side reporting client.
-- The remaining Phase 2 child issues (#16-#26 and #28-#32) are open backlog; none have started implementation yet.
+- Issue #25, Runner Docker execution sandbox: implemented locally on a task branch and awaiting review. `runner/internal/sandbox` owns the container lifecycle, `runner/internal/jobexecution` bounds concurrent executions and reports status, and `RunJob` starts an execution for every accepted Job. The design is documented in `docs/architecture/runner-execution-sandbox.md`.
+- The remaining Phase 2 child issues (#16-#24, #26, and #28-#32) are open backlog.
 
 ## Roadmap
 
@@ -56,11 +58,12 @@ The status-reporting path for issue #27 is implemented locally but not yet merge
 
 ## Next steps
 
-- Review and merge issue #27 so the status-reporting contract is available to the execution work that depends on it.
+- Review and merge issue #25 so accepted Jobs execute and report status at runtime.
 - Continue Phase 2 work: GitHub webhook endpoint and signature verification (#16, #17) are the entry point the rest of the phase depends on.
 - Define the repository connection model and persist connected repository metadata (#18, #19).
 - Normalize supported GitHub events (#20) and define the minimal pipeline model (#21) before pipeline inference (#22) and Job creation (#23).
-- Implement the Runner Docker execution sandbox (#25); it is the first caller of the status reporter and the point at which reports start flowing at runtime.
+- Carry the Job image and timeout in the `runner.v1` contract so they come from the Job definition instead of Runner configuration; this is a cross-service contract change that needs its own issue.
+- Stream and capture Job container logs (#26) on top of the sandbox.
 
 ## Risks and blockers
 
@@ -69,6 +72,8 @@ The status-reporting path for issue #27 is implemented locally but not yet merge
 - `secret-scan` and `static-analysis` are new check names. They gate merges only after the branch protection rule for `main` lists them, which follows their first successful run.
 - `.coderabbit.yaml` takes effect only once the CodeRabbit GitHub App is installed on the repository.
 - The Semgrep run excludes `go.grpc.security.grpc-server-insecure-connection` while the Runner gRPC server is deliberately plaintext. That exclusion is removed with Phase 6 transport security (issues #231-#242).
+- The execution sandbox targets local development. Containers use Docker's default bridge network and a root-owned workspace, and a remote repository location with embedded credentials is visible through `docker inspect` while the checkout container exists. Multi-tenant isolation hardening stays out of Phase 2 scope.
+- Tests that start real containers are opt-in (`ZEROYAML_RUNNER_DOCKER_TESTS=1`) because they need a Docker daemon and pinned public images, so CI covers the sandbox through a scripted Docker CLI only.
 
 ## Update policy
 

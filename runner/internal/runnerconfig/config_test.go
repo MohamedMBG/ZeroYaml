@@ -2,6 +2,7 @@ package runnerconfig
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -266,6 +267,108 @@ func TestLoadRejectsInvalidConfiguration(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.wantError) {
 				t.Fatalf("expected error containing %q, got %q", tt.wantError, err.Error())
+			}
+		})
+	}
+}
+
+func TestLoadUsesSafeExecutionDefaults(t *testing.T) {
+	for _, name := range []string{
+		envStatusReportTimeout, envJobImage, envCheckoutImage, envJobTimeout, envMaxConcurrentJobs, envLocalSourceRoot,
+	} {
+		unsetForTest(t, name)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected defaults to load: %v", err)
+	}
+
+	if cfg.StatusReportTimeout != defaultStatusReportTimeout {
+		t.Errorf("expected status report timeout %s, got %s", defaultStatusReportTimeout, cfg.StatusReportTimeout)
+	}
+	if cfg.JobImage != defaultJobImage {
+		t.Errorf("expected job image %q, got %q", defaultJobImage, cfg.JobImage)
+	}
+	if cfg.CheckoutImage != defaultCheckoutImage {
+		t.Errorf("expected checkout image %q, got %q", defaultCheckoutImage, cfg.CheckoutImage)
+	}
+	if cfg.JobTimeout != defaultJobTimeout {
+		t.Errorf("expected job timeout %s, got %s", defaultJobTimeout, cfg.JobTimeout)
+	}
+	if cfg.MaxConcurrentJobs != defaultMaxConcurrentJobs {
+		t.Errorf("expected %d concurrent jobs, got %d", defaultMaxConcurrentJobs, cfg.MaxConcurrentJobs)
+	}
+	if cfg.LocalSourceRoot != "" {
+		t.Errorf("expected file:// sources to be disabled by default, got root %q", cfg.LocalSourceRoot)
+	}
+}
+
+func TestLoadReadsExecutionOverrides(t *testing.T) {
+	sourceRoot := t.TempDir()
+	t.Setenv(envStatusReportTimeout, "2s")
+	t.Setenv(envJobImage, "golang:1.27.1")
+	t.Setenv(envCheckoutImage, "alpine/git:v2.49.1")
+	t.Setenv(envJobTimeout, "90s")
+	t.Setenv(envMaxConcurrentJobs, "4")
+	t.Setenv(envLocalSourceRoot, sourceRoot)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected execution overrides to load: %v", err)
+	}
+
+	if cfg.StatusReportTimeout != 2*time.Second {
+		t.Errorf("expected override status report timeout, got %s", cfg.StatusReportTimeout)
+	}
+	if cfg.JobImage != "golang:1.27.1" {
+		t.Errorf("expected override job image, got %q", cfg.JobImage)
+	}
+	if cfg.JobTimeout != 90*time.Second {
+		t.Errorf("expected override job timeout, got %s", cfg.JobTimeout)
+	}
+	if cfg.MaxConcurrentJobs != 4 {
+		t.Errorf("expected override concurrency, got %d", cfg.MaxConcurrentJobs)
+	}
+	if cfg.LocalSourceRoot != sourceRoot {
+		t.Errorf("expected override local source root, got %q", cfg.LocalSourceRoot)
+	}
+}
+
+func TestLoadRejectsInvalidExecutionConfiguration(t *testing.T) {
+	missingDirectory := filepath.Join(t.TempDir(), "missing")
+
+	tests := []struct {
+		name      string
+		variable  string
+		value     string
+		wantError string
+	}{
+		{name: "zero job timeout", variable: envJobTimeout, value: "0s", wantError: "must be greater than zero"},
+		{name: "unparsable job timeout", variable: envJobTimeout, value: "forever", wantError: "must be a Go duration"},
+		{name: "zero status report timeout", variable: envStatusReportTimeout, value: "0s", wantError: "must be greater than zero"},
+		{name: "empty job image", variable: envJobImage, value: " ", wantError: "must name a Docker image"},
+		{name: "empty checkout image", variable: envCheckoutImage, value: " ", wantError: "must name a Docker image"},
+		{name: "zero concurrency", variable: envMaxConcurrentJobs, value: "0", wantError: "must be between 1 and 16"},
+		{name: "excessive concurrency", variable: envMaxConcurrentJobs, value: "17", wantError: "must be between 1 and 16"},
+		{name: "non numeric concurrency", variable: envMaxConcurrentJobs, value: "many", wantError: "must be a whole number"},
+		{name: "relative source root", variable: envLocalSourceRoot, value: "sources", wantError: "must be an absolute directory path"},
+		{name: "missing source root", variable: envLocalSourceRoot, value: missingDirectory, wantError: "must name an existing directory"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(tt.variable, tt.value)
+
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("expected %s=%q to fail", tt.variable, tt.value)
+			}
+			if !strings.Contains(err.Error(), tt.variable) {
+				t.Errorf("expected the error to name %s, got %q", tt.variable, err.Error())
+			}
+			if !strings.Contains(err.Error(), tt.wantError) {
+				t.Errorf("expected error containing %q, got %q", tt.wantError, err.Error())
 			}
 		})
 	}

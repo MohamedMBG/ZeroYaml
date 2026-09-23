@@ -613,8 +613,9 @@ Override them with Spring Boot environment variables such as `ZEROYAML_RUNNER_HO
 dispatch deadline bounds the acknowledgment only. The dispatch contract, its
 request and response fields, and its failure semantics are documented in
 [`docs/architecture/run-job-contract.md`](./docs/architecture/run-job-contract.md).
-The Runner currently reports `accepting_work = false`, so every dispatch is
-rejected with `JOB_REJECTION_RUNNER_UNAVAILABLE` until execution support lands.
+A Runner accepts a dispatch only when it is registered, its Docker daemon is
+reachable, and it has a free execution slot; see
+[Runner Docker execution](#runner-docker-execution).
 
 ### Runner-facing gRPC endpoint
 
@@ -657,10 +658,16 @@ The Runner reads startup configuration from environment variables and keeps safe
 | `ZEROYAML_RUNNER_REGISTRATION_TIMEOUT` | `5s` | Bound on the single startup registration attempt |
 | `ZEROYAML_RUNNER_HEARTBEAT_INTERVAL` | `5s` | Interval between heartbeats sent by a registered Runner |
 | `ZEROYAML_RUNNER_HEARTBEAT_TIMEOUT` | `5s` | Bound on each individual heartbeat attempt |
+| `ZEROYAML_RUNNER_STATUS_REPORT_TIMEOUT` | `5s` | Bound on each job status report sent to the Control Plane |
+| `ZEROYAML_RUNNER_JOB_IMAGE` | `alpine:3.22` | Docker image that runs every Job command |
+| `ZEROYAML_RUNNER_CHECKOUT_IMAGE` | `alpine/git:v2.49.1` | Docker image, with `sh` and `git`, that fetches the Job repository |
+| `ZEROYAML_RUNNER_JOB_TIMEOUT` | `10m` | Bound on one execution, including the source checkout |
+| `ZEROYAML_RUNNER_MAX_CONCURRENT_JOBS` | `1` | Executions run at once, from `1` to `16` |
+| `ZEROYAML_RUNNER_LOCAL_SOURCE_ROOT` | empty | Absolute host directory below which `file://` repository locations are accepted; empty disables them |
 
 `ZEROYAML_RUNNER_GRPC_ADDRESS` and `ZEROYAML_CONTROLPLANE_ADDRESS` must use host-and-port syntax such as `:50051` or `127.0.0.1:50051`. Invalid values fail startup with an actionable configuration error.
 
-`ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT`, `ZEROYAML_RUNNER_REGISTRATION_TIMEOUT`, `ZEROYAML_RUNNER_HEARTBEAT_INTERVAL`, and `ZEROYAML_RUNNER_HEARTBEAT_TIMEOUT` must each be a positive Go duration such as `5s` or `500ms`. Keep the shutdown timeout below the stop grace period of the process supervisor, otherwise the supervisor kills the Runner before draining completes.
+`ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT`, `ZEROYAML_RUNNER_REGISTRATION_TIMEOUT`, `ZEROYAML_RUNNER_HEARTBEAT_INTERVAL`, `ZEROYAML_RUNNER_HEARTBEAT_TIMEOUT`, `ZEROYAML_RUNNER_STATUS_REPORT_TIMEOUT`, and `ZEROYAML_RUNNER_JOB_TIMEOUT` must each be a positive Go duration such as `5s` or `500ms`. Keep the shutdown timeout below the stop grace period of the process supervisor, otherwise the supervisor kills the Runner before draining completes.
 
 The heartbeat loop only starts once startup registration reports the Runner
 `ready`; a Runner the Control Plane never accepted has nothing to keep alive on
@@ -712,9 +719,36 @@ A report the Control Plane did not apply is logged at `WARN` with its
 one executing it. Records never contain the failure message, which is derived
 from execution output.
 
-Nothing calls the reporter yet: the Runner still rejects every dispatch, so
-there is no execution to report. The package is the seam the execution sandbox
-uses once it lands.
+The execution dispatcher (`runner/internal/jobexecution`) sends a running
+report when an accepted Job starts and one terminal report when it ends.
+
+### Runner Docker execution
+
+`runner/internal/sandbox` runs every accepted Job in Docker; the Runner never
+executes a Job command on its host. At startup the Runner probes the Docker
+daemon with `docker version`. If the daemon does not answer, the Runner keeps
+serving `Ping` and `GetInfo` but rejects every dispatch as unavailable.
+
+Each execution creates a workspace volume, fetches the dispatched revision into
+it with a checkout container, runs the command as the entrypoint of a Job
+container in `/workspace/<working_directory>`, and then removes every container
+and the volume, whether the command succeeded, failed, timed out, or was
+cancelled. Resources carry the `io.zeroyaml.managed=true` label. Repository
+locations must use `https://`, `http://`, or, when
+`ZEROYAML_RUNNER_LOCAL_SOURCE_ROOT` is set, `file://` below that directory.
+
+The workspace strategy, resource bounds, result mapping, and known limits are
+documented in
+[`docs/architecture/runner-execution-sandbox.md`](./docs/architecture/runner-execution-sandbox.md).
+Tests that start real containers are opt-in:
+
+```powershell
+Push-Location runner
+$env:ZEROYAML_RUNNER_DOCKER_TESTS = '1'
+go test -count=1 -run TestDockerExecution ./internal/sandbox/
+Remove-Item Env:ZEROYAML_RUNNER_DOCKER_TESTS
+Pop-Location
+```
 
 The Go protobuf bindings can be regenerated from the repository root after
 installing the pinned `protoc-gen-go` and `protoc-gen-go-grpc` tool versions:
@@ -737,7 +771,8 @@ The Runner stops on `SIGINT` (local `Ctrl+C`) and on `SIGTERM` (containers and s
 
 1. closes the gRPC listener, so no new connection or RPC is accepted;
 2. waits for in-flight RPCs to finish, bounded by `ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT`;
-3. cancels the remaining RPCs when that timeout expires, so the process always terminates.
+3. cancels the remaining RPCs when that timeout expires, so the process always terminates;
+4. cancels running Job executions, which force-removes their containers, and waits for each to send its terminal status report.
 
 Verify it locally:
 

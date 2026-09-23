@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -37,6 +38,30 @@ const (
 	// slow or unreachable Control Plane cannot stall the next scheduled tick.
 	defaultHeartbeatTimeout = 5 * time.Second
 
+	// defaultStatusReportTimeout bounds each execution status report so an
+	// unreachable Control Plane cannot hold an execution slot.
+	defaultStatusReportTimeout = 5 * time.Second
+
+	// defaultJobImage runs Job commands when the operator names no image. The
+	// RunJob contract does not carry an image yet, so this is the image every
+	// Job uses on this Runner.
+	defaultJobImage = "alpine:3.22"
+
+	// defaultCheckoutImage fetches repositories into the Job workspace. It must
+	// provide sh and git.
+	defaultCheckoutImage = "alpine/git:v2.49.1"
+
+	// defaultJobTimeout bounds one execution, including the source checkout, so
+	// a hung command cannot hold an execution slot indefinitely.
+	defaultJobTimeout = 10 * time.Minute
+
+	// defaultMaxConcurrentJobs keeps a local Runner to one container at a time.
+	defaultMaxConcurrentJobs = 1
+
+	// maxConcurrentJobsLimit caps the configurable concurrency so a typo cannot
+	// let one Runner start an unbounded number of containers.
+	maxConcurrentJobsLimit = 16
+
 	envGRPCAddress         = "ZEROYAML_RUNNER_GRPC_ADDRESS"
 	envRunnerID            = "ZEROYAML_RUNNER_ID"
 	envVersion             = "ZEROYAML_RUNNER_VERSION"
@@ -45,6 +70,12 @@ const (
 	envRegistrationTimeout = "ZEROYAML_RUNNER_REGISTRATION_TIMEOUT"
 	envHeartbeatInterval   = "ZEROYAML_RUNNER_HEARTBEAT_INTERVAL"
 	envHeartbeatTimeout    = "ZEROYAML_RUNNER_HEARTBEAT_TIMEOUT"
+	envStatusReportTimeout = "ZEROYAML_RUNNER_STATUS_REPORT_TIMEOUT"
+	envJobImage            = "ZEROYAML_RUNNER_JOB_IMAGE"
+	envCheckoutImage       = "ZEROYAML_RUNNER_CHECKOUT_IMAGE"
+	envJobTimeout          = "ZEROYAML_RUNNER_JOB_TIMEOUT"
+	envMaxConcurrentJobs   = "ZEROYAML_RUNNER_MAX_CONCURRENT_JOBS"
+	envLocalSourceRoot     = "ZEROYAML_RUNNER_LOCAL_SOURCE_ROOT"
 )
 
 // Config contains startup configuration for the Runner process.
@@ -70,6 +101,25 @@ type Config struct {
 
 	// HeartbeatTimeout bounds each individual heartbeat attempt.
 	HeartbeatTimeout time.Duration
+
+	// StatusReportTimeout bounds each execution status report.
+	StatusReportTimeout time.Duration
+
+	// JobImage is the Docker image that runs every Job command.
+	JobImage string
+
+	// CheckoutImage is the Docker image that fetches the Job repository.
+	CheckoutImage string
+
+	// JobTimeout bounds one execution from workspace creation to command exit.
+	JobTimeout time.Duration
+
+	// MaxConcurrentJobs is the number of executions this Runner runs at once.
+	MaxConcurrentJobs int
+
+	// LocalSourceRoot enables file:// repository locations below this absolute
+	// host directory. Empty disables them.
+	LocalSourceRoot string
 }
 
 // Load reads Runner configuration from environment variables and validates it.
@@ -94,6 +144,21 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	statusReportTimeout, err := durationFromEnv(envStatusReportTimeout, defaultStatusReportTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+
+	jobTimeout, err := durationFromEnv(envJobTimeout, defaultJobTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+
+	maxConcurrentJobs, err := intFromEnv(envMaxConcurrentJobs, defaultMaxConcurrentJobs)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		GRPCAddress:         valueFromEnv(envGRPCAddress, defaultGRPCAddress),
 		RunnerID:            valueFromEnv(envRunnerID, defaultRunnerID),
@@ -103,6 +168,12 @@ func Load() (Config, error) {
 		RegistrationTimeout: registrationTimeout,
 		HeartbeatInterval:   heartbeatInterval,
 		HeartbeatTimeout:    heartbeatTimeout,
+		StatusReportTimeout: statusReportTimeout,
+		JobImage:            valueFromEnv(envJobImage, defaultJobImage),
+		CheckoutImage:       valueFromEnv(envCheckoutImage, defaultCheckoutImage),
+		JobTimeout:          jobTimeout,
+		MaxConcurrentJobs:   maxConcurrentJobs,
+		LocalSourceRoot:     valueFromEnv(envLocalSourceRoot, ""),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -154,6 +225,43 @@ func (c Config) Validate() error {
 		return fmt.Errorf("%s must be greater than zero, got %s", envHeartbeatTimeout, c.HeartbeatTimeout)
 	}
 
+	return c.validateExecution()
+}
+
+func (c Config) validateExecution() error {
+	if c.StatusReportTimeout <= 0 {
+		return fmt.Errorf("%s must be greater than zero, got %s", envStatusReportTimeout, c.StatusReportTimeout)
+	}
+
+	if strings.TrimSpace(c.JobImage) == "" {
+		return fmt.Errorf("%s must name a Docker image, such as alpine:3.22", envJobImage)
+	}
+
+	if strings.TrimSpace(c.CheckoutImage) == "" {
+		return fmt.Errorf("%s must name a Docker image that provides sh and git, such as alpine/git:v2.49.1", envCheckoutImage)
+	}
+
+	if c.JobTimeout <= 0 {
+		return fmt.Errorf("%s must be greater than zero, got %s", envJobTimeout, c.JobTimeout)
+	}
+
+	if c.MaxConcurrentJobs < 1 || c.MaxConcurrentJobs > maxConcurrentJobsLimit {
+		return fmt.Errorf("%s must be between 1 and %d, got %d", envMaxConcurrentJobs, maxConcurrentJobsLimit, c.MaxConcurrentJobs)
+	}
+
+	if c.LocalSourceRoot == "" {
+		return nil
+	}
+
+	if !filepath.IsAbs(c.LocalSourceRoot) {
+		return fmt.Errorf("%s must be an absolute directory path, got %q", envLocalSourceRoot, c.LocalSourceRoot)
+	}
+
+	info, err := os.Stat(c.LocalSourceRoot)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("%s must name an existing directory, got %q", envLocalSourceRoot, c.LocalSourceRoot)
+	}
+
 	return nil
 }
 
@@ -174,6 +282,20 @@ func durationFromEnv(name string, fallback time.Duration) (time.Duration, error)
 	value, err := time.ParseDuration(strings.TrimSpace(rawValue))
 	if err != nil {
 		return 0, fmt.Errorf("%s must be a Go duration such as 5s or 500ms: %w", name, err)
+	}
+
+	return value, nil
+}
+
+func intFromEnv(name string, fallback int) (int, error) {
+	rawValue, isSet := os.LookupEnv(name)
+	if !isSet {
+		return fallback, nil
+	}
+
+	value, err := strconv.Atoi(strings.TrimSpace(rawValue))
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a whole number: %w", name, err)
 	}
 
 	return value, nil
