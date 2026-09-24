@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -10,6 +11,8 @@ import (
 	"unicode/utf8"
 
 	runnerv1 "github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1"
+	"github.com/MohamedMBG/ZeroYaml/runner/internal/jobexecution"
+	"github.com/MohamedMBG/ZeroYaml/runner/internal/sandbox"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -31,9 +34,12 @@ const maxLoggedValueLength = 128
 // A request whose context is already cancelled or past its deadline is answered
 // with the matching gRPC status and never acknowledged, because the caller can
 // no longer receive the answer and must not be recorded as having dispatched
-// the Job. The handler starts no goroutines and holds no resources beyond the
-// call, so a cancelled request leaves nothing behind. Execution work added
-// later must keep honoring ctx for the same reason.
+// the Job, and no execution is started for it.
+//
+// An accepted Job is handed to the JobSubmitter, which runs it in the
+// background under the Runner process lifetime rather than under ctx: the
+// acknowledgment ends the RPC, but the Runner stays responsible for the Job
+// until it reports a terminal status.
 func (s *Server) RunJob(
 	ctx context.Context,
 	req *runnerv1.RunJobRequest,
@@ -51,17 +57,21 @@ func (s *Server) RunJob(
 	return response, err
 }
 
-// acknowledgeJob decides the answer to a dispatch without side effects.
+// acknowledgeJob decides the answer to a dispatch and, only for an accepted
+// Job, starts its execution.
 //
 // Checks run in contract order. The protocol version is examined first, because
 // an unsupported version makes the meaning of the remaining fields uncertain.
 // Field validation follows, and Runner state is examined last, so that a caller
 // defect is reported as such even while the Runner is unavailable.
 //
-// The current Runner has no execution service, so it reports
-// accepting_work = false and rejects every dispatch with
-// JOB_REJECTION_RUNNER_UNAVAILABLE. Accepting a Job becomes reachable when
-// execution support is added; nothing here executes a command.
+// A Runner without a verified Docker daemon reports accepting_work = false and
+// rejects every dispatch with JOB_REJECTION_RUNNER_UNAVAILABLE. So does a
+// Runner whose execution slots are all in use or that is shutting down, because
+// another Runner may take the Job. A Job this Runner cannot map to a container,
+// such as one with an unsupported repository scheme, is answered with
+// FAILED_PRECONDITION, since dispatching it again to the same Runner cannot
+// succeed.
 func (s *Server) acknowledgeJob(req *runnerv1.RunJobRequest) (*runnerv1.RunJobResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "run job request must be present")
@@ -83,12 +93,16 @@ func (s *Server) acknowledgeJob(req *runnerv1.RunJobRequest) (*runnerv1.RunJobRe
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	if !s.identity.AcceptingWork {
+	if !s.identity.AcceptingWork || s.jobs == nil {
 		return s.rejectJob(
 			req.GetJob().GetJobId(),
 			runnerv1.JobRejectionReason_JOB_REJECTION_RUNNER_UNAVAILABLE,
 			fmt.Sprintf("runner status is %s and it is not accepting work", s.identity.Status),
 		), nil
+	}
+
+	if err := s.jobs.Submit(req.GetJob()); err != nil {
+		return s.answerSubmitFailure(req.GetJob().GetJobId(), err)
 	}
 
 	return &runnerv1.RunJobResponse{
@@ -100,14 +114,28 @@ func (s *Server) acknowledgeJob(req *runnerv1.RunJobRequest) (*runnerv1.RunJobRe
 	}, nil
 }
 
+// answerSubmitFailure maps a Job the JobSubmitter did not start onto the
+// dispatch answer. The error messages come from the Runner and never echo the
+// repository location or the command.
+func (s *Server) answerSubmitFailure(jobID string, err error) (*runnerv1.RunJobResponse, error) {
+	switch {
+	case errors.Is(err, jobexecution.ErrAtCapacity), errors.Is(err, jobexecution.ErrClosed):
+		return s.rejectJob(jobID, runnerv1.JobRejectionReason_JOB_REJECTION_RUNNER_UNAVAILABLE, err.Error()), nil
+	case errors.Is(err, sandbox.ErrUnsupportedJob):
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	default:
+		return nil, status.Error(codes.Internal, fmt.Sprintf("start job execution: %v", err))
+	}
+}
+
 // logRunJob records the outcome of one dispatch. The record names the Job and
 // the answering process so that it can be correlated with Control Plane audit
 // records. It deliberately omits the repository location, revision, and
 // command, which may carry credentials or sensitive arguments.
 //
 // An acknowledgment is logged at INFO, a contract violation at WARN because it
-// indicates a caller defect, and an abandoned request at INFO because a caller
-// giving up is an ordinary event.
+// indicates a caller defect, an abandoned request at INFO because a caller
+// giving up is an ordinary event, and a Job the Runner could not start at WARN.
 func (s *Server) logRunJob(
 	ctx context.Context,
 	req *runnerv1.RunJobRequest,
@@ -129,10 +157,13 @@ func (s *Server) logRunJob(
 			slog.String("error", rpcStatus.Message()),
 		)
 
-		if rpcStatus.Code() == codes.InvalidArgument {
+		switch rpcStatus.Code() {
+		case codes.InvalidArgument:
 			s.logger.LogAttrs(ctx, slog.LevelWarn, "run job request rejected as invalid", attributes...)
-		} else {
+		case codes.Canceled, codes.DeadlineExceeded:
 			s.logger.LogAttrs(ctx, slog.LevelInfo, "run job request abandoned by the caller", attributes...)
+		default:
+			s.logger.LogAttrs(ctx, slog.LevelWarn, "run job request could not be started", attributes...)
 		}
 
 		return

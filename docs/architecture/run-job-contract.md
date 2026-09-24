@@ -47,6 +47,10 @@ Failures are split by who must fix them:
 - A well-formed request that the Runner declines returns `OK` with
   `JOB_REJECTED` and a reason. The refusal is a Runner state decision that the
   Control Plane records and acts on.
+- A well-formed request that this Runner cannot map to a container execution,
+  such as a repository scheme it does not fetch, fails with
+  `FAILED_PRECONDITION`. Dispatching it again to the same Runner cannot
+  succeed.
 
 Current rejection reasons:
 
@@ -62,10 +66,13 @@ contract grants no access to directories outside the workspace.
 
 ## Current Runner behavior
 
-The Runner has no execution service yet, so it reports `accepting_work = false`
-and rejects every dispatch with `JOB_REJECTION_RUNNER_UNAVAILABLE`. Nothing in
-this contract executes a command; container execution, log streaming, and result
-reporting are separate contracts.
+A Runner accepts a Job only when it is `READY`, its Docker daemon answered at
+startup, and it has a free execution slot; a busy or shutting-down Runner
+rejects the Job with `JOB_REJECTION_RUNNER_UNAVAILABLE`. An acknowledgment means
+the Runner started the execution in the Docker sandbox described in
+[`runner-execution-sandbox.md`](./runner-execution-sandbox.md). The execution
+result travels separately through `JobExecutionStatusService`, and log
+streaming is a separate contract.
 
 ## Compatibility
 
