@@ -1,6 +1,6 @@
 # ZeroYAML Project Progress
 
-Last updated: 2026-09-23 (Phase 2: GitHub webhook endpoint proposed for issue #16)
+Last updated: 2026-09-23 (Phase 2: repository connection model proposed for issue #18)
 
 Current phase: 2
 
@@ -15,6 +15,8 @@ Phase 2 — GitHub Integration & First E2E Pipeline is the active delivery phase
 The status-reporting path for issue #27 is merged into `main`. `JobExecutionStatusService.ReportJobStatus` carries execution facts from a Runner back to the Control Plane, which owns authoritative Job state: a running report starts a queued Job, a terminal report completes it as succeeded or failed with a reason and, where available, an exit code. Duplicate, late, and contradicting reports are answered explicitly and never change recorded state, and a terminal report repeats the execution start time so a lost running report cannot strand a finished execution. The Control Plane now serves every Runner-facing gRPC service on one endpoint, keeping the existing `zeroyaml.registration.port` setting. The Runner side is a reporting client that execution support will call; the Runner still rejects every dispatch, so nothing reports status at runtime yet.
 
 The GitHub webhook endpoint for issue #16 is implemented locally on a task branch and not yet merged. `POST /webhooks/github` validates the delivery envelope (event and delivery headers, JSON content type, a bounded payload that opens a JSON object), answers `push` with `202 Accepted` and hands the raw body and GitHub headers to a `GitHubWebhookDeliveryHandler`, and answers `ping` and every other event `200 OK` as ignored without starting work. The handler currently only writes an audit record; signature verification (#17) and event normalization (#20) plug in behind it.
+
+The repository connection model for issue #18 is implemented locally on a task branch and not yet merged. It adds the `io.zeroyaml.controlplane.domain.repository` package only; no persistence, transport, or GitHub integration depends on it yet.
 
 ## Completed
 
@@ -45,7 +47,8 @@ The GitHub webhook endpoint for issue #16 is implemented locally on a task branc
 
 - Issue #16, GitHub webhook endpoint: implemented locally on a task branch and awaiting review. The ingress adapter lives in `io.zeroyaml.controlplane.github.webhook` and is documented in `docs/architecture/github-webhook-ingress.md`.
 - Issue #25, Runner Docker execution sandbox: proposed in pull request #260 and awaiting review.
-- The remaining Phase 2 child issues (#17-#24, #26, and #28-#32) are open backlog.
+- Issue #18, repository connection model: implemented locally on a task branch and awaiting review; nothing is merged into `main` yet. `RepositoryConnection` is a Control Plane domain aggregate identified by `RepositoryIdentity` (provider plus owner and name, lower-cased because GitHub resolves them case-insensitively); equality and hash code use only that identity, so a second connection to the same repository is treated as a duplicate. The default branch is a validated `BranchName`, and webhook metadata holds only a `SecretReference` naming an environment variable or future secret-store entry, so no secret material is stored in the model or its string form. `ConnectionStatus` covers `PENDING -> ACTIVE <-> SUSPENDED -> DISCONNECTED` with `InvalidConnectionTransitionException` for illegal moves; only `ACTIVE` connections accept webhook events. Persistence, GitHub App/OAuth flows, webhook handling, and pipeline inference stay out of the model. Documented in `docs/architecture/repository-connection-model.md`.
+- The remaining Phase 2 child issues (#17, #19-#24, #26, and #28-#32) are open backlog.
 
 ## Roadmap
 
@@ -60,7 +63,7 @@ The GitHub webhook endpoint for issue #16 is implemented locally on a task branc
 ## Next steps
 
 - Review and merge issue #16, then verify webhook signatures (#17) behind the `GitHubWebhookDeliveryHandler` boundary before the endpoint is reachable from untrusted networks.
-- Define the repository connection model and persist connected repository metadata (#18, #19).
+- Review and merge issue #18, then persist connected repository metadata (#19) on the repository connection model it defines.
 - Normalize supported GitHub events (#20) and define the minimal pipeline model (#21) before pipeline inference (#22) and Job creation (#23).
 - Implement the Runner Docker execution sandbox (#25); it is the first caller of the status reporter and the point at which reports start flowing at runtime.
 

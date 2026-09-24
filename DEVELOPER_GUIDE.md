@@ -470,7 +470,10 @@ then use the focused [Runner identity and registration contract](./docs/architec
 [Core Job Model](./docs/architecture/job-model.md),
 [RunJob dispatch contract](./docs/architecture/run-job-contract.md), and
 [Job status reporting contract](./docs/architecture/job-status-contract.md)
-references for the implemented foundation and its explicit integration limits.
+references for the implemented foundation and its explicit integration limits. The
+[Repository Connection Model](./docs/architecture/repository-connection-model.md)
+reference covers how the Control Plane identifies connected repositories and
+references webhook secrets without storing them.
 
 Examples:
 
