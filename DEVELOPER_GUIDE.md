@@ -685,7 +685,7 @@ The Runner reads startup configuration from environment variables and keeps safe
 | `ZEROYAML_RUNNER_GRPC_ADDRESS` | `:50051` | TCP address used by the Runner gRPC server |
 | `ZEROYAML_RUNNER_ID` | `local-runner` | Stable logical Runner identity returned by `GetInfo` and shown in startup logs |
 | `ZEROYAML_RUNNER_VERSION` | `0.1.0` | Runner version returned by `RunnerService.Ping` |
-| `ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT` | `5s` | Bound on draining in-flight RPCs during shutdown |
+| `ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT` | `5s` | Bound on the whole shutdown: draining in-flight RPCs and running Job executions |
 | `ZEROYAML_CONTROLPLANE_ADDRESS` | `localhost:50052` | Control Plane gRPC endpoint for registration, heartbeats, and job status reports |
 | `ZEROYAML_RUNNER_REGISTRATION_TIMEOUT` | `5s` | Bound on the single startup registration attempt |
 | `ZEROYAML_RUNNER_HEARTBEAT_INTERVAL` | `5s` | Interval between heartbeats sent by a registered Runner |
@@ -805,6 +805,8 @@ The Runner stops on `SIGINT` (local `Ctrl+C`) and on `SIGTERM` (containers and s
 2. waits for in-flight RPCs to finish, bounded by `ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT`;
 3. cancels the remaining RPCs when that timeout expires, so the process always terminates;
 4. cancels running Job executions, which force-removes their containers, and waits for each to send its terminal status report.
+
+`ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT` is one budget for the whole sequence, measured from the signal, so the RPC drain and the execution drain cannot add up past it. When the budget runs out with executions still finishing, the Runner logs `runner exited before every job execution finished` with their number and exits; their Docker resources stay labelled `io.zeroyaml.managed=true` and can be removed manually.
 
 Verify it locally:
 

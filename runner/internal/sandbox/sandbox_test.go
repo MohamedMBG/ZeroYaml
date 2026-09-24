@@ -160,9 +160,45 @@ func TestRunReportsAnUnreachableDockerDaemonAsAnExecutionError(t *testing.T) {
 	if !strings.Contains(result.Message, "workspace creation failed") || !strings.Contains(result.Message, "Cannot connect") {
 		t.Errorf("Message = %q, want the failed stage and the Docker reason", result.Message)
 	}
-	if slices.Contains(docker.commandSummary(), "volume rm") {
-		t.Error("removed a volume that was never created")
+}
+
+// TestRunRemovesTheWorkspaceVolumeWhenItsCreationFails covers the create whose
+// response was lost: the daemon may hold the volume even though the CLI
+// reported a failure, so removal by name is attempted without waiting for a
+// cancellation.
+func TestRunRemovesTheWorkspaceVolumeWhenItsCreationFails(t *testing.T) {
+	docker := newFakeDocker()
+	docker.failures["volume create"] = errors.New("docker volume: exit status 1: connection reset by peer")
+
+	result := newTestSandbox(docker).Run(context.Background(), testSpec())
+
+	if result.Outcome != OutcomeExecutionError {
+		t.Fatalf("Outcome = %s, want %s", result.Outcome, OutcomeExecutionError)
 	}
+
+	wantCommands := []string{"volume create", "volume rm"}
+	if got := docker.commandSummary(); !slices.Equal(got, wantCommands) {
+		t.Errorf("docker commands =\n%v\nwant\n%v", got, wantCommands)
+	}
+	if !slices.Contains(docker.lastArgs(), "zeroyaml-"+testExecutionID+"-workspace") {
+		t.Error("the workspace volume was not removed by its name")
+	}
+}
+
+// TestRunRemovesAContainerWhoseCreationFails covers the same lost-response case
+// for a container: it is removed by name even though create reported an error.
+func TestRunRemovesAContainerWhoseCreationFails(t *testing.T) {
+	jobContainer := "zeroyaml-" + testExecutionID + "-job"
+
+	docker := newFakeDocker()
+	docker.failures["create "+jobContainer] = errors.New("docker create: exit status 1: connection reset by peer")
+
+	result := newTestSandbox(docker).Run(context.Background(), testSpec())
+
+	if result.Outcome != OutcomeExecutionError {
+		t.Fatalf("Outcome = %s, want %s: %s", result.Outcome, OutcomeExecutionError, result.Message)
+	}
+	docker.assertCleanedUp(t, "checkout-id", jobContainer)
 }
 
 func TestRunRemovesAContainerThatFailedToStart(t *testing.T) {
@@ -348,6 +384,14 @@ func (f *fakeDocker) commandSummary() []string {
 	}
 
 	return summary
+}
+
+// lastArgs returns the argument vector of the most recent Docker call.
+func (f *fakeDocker) lastArgs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]string(nil), f.calls[len(f.calls)-1].args...)
 }
 
 // assertCleanedUp checks that every named container and the workspace volume

@@ -144,11 +144,21 @@ func Probe(ctx context.Context, dockerBinary string, timeout time.Duration) (str
 
 // cliDocker runs the Docker CLI directly, without a shell, so every argument
 // reaches Docker exactly as built.
+//
+// The executable is never request content: dockerBinary is the Runner's own
+// compile-time Docker CLI name, resolved through PATH exactly as for any other
+// Docker CLI user. Request content only ever reaches this call as elements of
+// args, which exec passes to Docker as a literal argument vector: no host shell
+// parses them, so a value cannot become an additional command. Docker itself is
+// kept from reading a value as an option by the argument order built in this
+// file and by spec validation, which rejects locations, revisions, working
+// directories, and commands that do not fit the accepted shapes.
 func cliDocker(dockerBinary string) dockerFunc {
 	return func(ctx context.Context, args ...string) (string, error) {
 		stdout := &headBuffer{limit: maxStandardOutputBytes}
 		stderr := &tailBuffer{limit: maxErrorDetailBytes}
 
+		// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 		command := exec.CommandContext(ctx, dockerBinary, args...)
 		command.Stdout = stdout
 		command.Stderr = stderr

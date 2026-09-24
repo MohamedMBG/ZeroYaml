@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	runnerv1 "github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1"
@@ -28,6 +29,10 @@ var (
 
 	// ErrClosed means the Runner is shutting down and accepts no new Jobs.
 	ErrClosed = errors.New("runner is shutting down and accepts no new jobs")
+
+	// ErrDrainIncomplete means Close returned before every execution had
+	// finished, because its context ended first.
+	ErrDrainIncomplete = errors.New("job executions did not finish within the shutdown budget")
 )
 
 // Executor runs one resolved Job to completion.
@@ -45,7 +50,8 @@ type StatusReporter interface {
 //
 // Every execution runs under the lifetime context passed to NewDispatcher, so
 // cancelling it stops running containers. Close then waits for every execution
-// to finish its cleanup and final report.
+// to finish its cleanup and final report, bounded by the caller's shutdown
+// budget.
 type Dispatcher struct {
 	lifetime context.Context
 	executor Executor
@@ -55,6 +61,10 @@ type Dispatcher struct {
 	now      func() time.Time
 
 	slots chan struct{}
+
+	// active counts executions that have started and not yet returned. It is
+	// read by Close to report how much work an incomplete drain left behind.
+	active atomic.Int64
 
 	// mu guards closed and orders every running.Add before Close calls
 	// running.Wait, as sync.WaitGroup requires.
@@ -109,24 +119,44 @@ func (d *Dispatcher) Submit(job *runnerv1.JobSpecification) error {
 	}
 
 	d.running.Add(1)
+	d.active.Add(1)
 	go d.execute(spec)
 
 	return nil
 }
 
-// Close stops accepting Jobs and waits for every running execution to return.
-// Callers cancel the lifetime context first so that running containers stop
-// instead of running to completion.
-func (d *Dispatcher) Close() {
+// Close stops accepting Jobs and waits for every running execution to return,
+// bounded by ctx. Callers cancel the lifetime context first so that running
+// containers stop instead of running to completion.
+//
+// It returns an error wrapping ErrDrainIncomplete when ctx ends before every
+// execution has returned, so the caller can terminate within its shutdown
+// budget instead of waiting on container cleanup or a status report for an
+// unbounded time. Executions the drain did not wait for keep running until the
+// process exits; their Docker resources carry the io.zeroyaml.managed label and
+// the reported execution identifier, so leftovers stay attributable.
+func (d *Dispatcher) Close(ctx context.Context) error {
 	d.mu.Lock()
 	d.closed = true
 	d.mu.Unlock()
 
-	d.running.Wait()
+	drained := make(chan struct{})
+	go func() {
+		d.running.Wait()
+		close(drained)
+	}()
+
+	select {
+	case <-drained:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("%w: %d job execution(s) were still finishing", ErrDrainIncomplete, d.active.Load())
+	}
 }
 
 func (d *Dispatcher) execute(spec sandbox.Spec) {
 	defer d.running.Done()
+	defer d.active.Add(-1)
 	defer func() { <-d.slots }()
 
 	startedAt := d.now()

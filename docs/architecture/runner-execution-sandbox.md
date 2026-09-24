@@ -99,10 +99,14 @@ with `--rm`, so `docker wait` can always read the exit code first.
 Every resource is removed before the execution returns, whether the command
 succeeded, failed, timed out, or was cancelled. Removal runs with its own
 30-second context detached from the execution, so a cancelled or timed-out
-execution still cleans up. If a `create` is interrupted, for example during a
-slow image pull, the resource is removed by name because the daemon may have
-created it anyway. A failed removal is logged at `WARN` with the execution ID;
-it never changes the reported result. Leftovers can be listed with:
+execution still cleans up. Every failed `create` is followed by a removal by
+name, because a create that reports an error never proves that nothing was
+created: the daemon may have created the resource and then lost the response,
+for example when the CLI was interrupted during a slow image pull or the
+connection broke. That removal usually finds nothing, so its failure is logged
+at `DEBUG`; a failed removal of a resource that was created is logged at `WARN`
+with the execution ID. Neither ever changes the reported result. Leftovers can
+be listed with:
 
 ```powershell
 docker ps --all --filter label=io.zeroyaml.managed=true
@@ -139,6 +143,15 @@ command finishes. On `SIGINT` or `SIGTERM` the Runner stops accepting Jobs,
 cancels running executions (their containers are force-removed), and waits for
 each execution to clean up and send its terminal report before the process
 exits.
+
+That wait is bounded. `ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT` is one budget for the
+whole shutdown sequence, and it starts when the signal arrives: the RPC drain
+and the execution drain share it, so neither Docker cleanup nor a slow status
+report can hold the process past the configured deadline. A drain that runs out
+of budget logs `runner exited before every job execution finished` with the
+number of executions still finishing; their Docker resources carry the
+`io.zeroyaml.managed=true` label and the `io.zeroyaml.execution-id` of the
+execution, so anything left behind stays attributable and removable.
 
 ## Known limits
 

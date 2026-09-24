@@ -129,10 +129,11 @@ func (s *Sandbox) run(ctx context.Context, runCtx context.Context, executionID s
 	names := newResourceNames(executionID)
 
 	if _, err := s.docker(runCtx, volumeCreateArgs(names)...); err != nil {
-		if runCtx.Err() != nil {
-			// The daemon may have created the volume before the CLI was stopped.
-			s.remove(ctx, executionID, "workspace volume", "volume", "rm", "--force", names.volume)
-		}
+		// A failed create never proves that nothing was created: the daemon may
+		// have created the volume and then lost the response, for example when
+		// the CLI was stopped or the connection broke. Removal by name is
+		// therefore attempted for every create failure.
+		s.removeAfterFailedCreate(ctx, executionID, "workspace volume", "volume", "rm", "--force", names.volume)
 
 		return s.interrupted(ctx, runCtx, spec, "workspace creation", err)
 	}
@@ -180,12 +181,11 @@ func (s *Sandbox) runContainer(
 ) (int32, error) {
 	output, err := s.docker(runCtx, createArgs...)
 	if err != nil {
-		if runCtx.Err() != nil {
-			// A create stopped by the deadline or a cancellation, for example
-			// during a slow image pull, may still have created the container, so
-			// it is removed by its name.
-			s.remove(ctx, executionID, "container", "rm", "--force", "--volumes", name)
-		}
+		// The container may exist even though the create call failed: a create
+		// stopped by the deadline or a cancellation during a slow image pull, or
+		// one whose response was lost, still leaves the named container behind.
+		// It is therefore removed by name after every create failure.
+		s.removeAfterFailedCreate(ctx, executionID, "container", "rm", "--force", "--volumes", name)
 
 		return 0, err
 	}
@@ -236,13 +236,31 @@ func (s *Sandbox) interrupted(ctx context.Context, runCtx context.Context, spec 
 // removal is logged with the execution identifier for manual cleanup; it never
 // changes the execution result.
 func (s *Sandbox) remove(ctx context.Context, executionID string, resource string, args ...string) {
+	s.removeResource(ctx, slog.LevelWarn, executionID, resource, args...)
+}
+
+// removeAfterFailedCreate removes a resource that a failed docker create may
+// have left behind. The named resource often does not exist, because the create
+// failed before the daemon acted, so a failed removal here is expected and is
+// recorded at debug level rather than as a warning.
+func (s *Sandbox) removeAfterFailedCreate(ctx context.Context, executionID string, resource string, args ...string) {
+	s.removeResource(ctx, slog.LevelDebug, executionID, resource, args...)
+}
+
+func (s *Sandbox) removeResource(
+	ctx context.Context,
+	level slog.Level,
+	executionID string,
+	resource string,
+	args ...string,
+) {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cleanupTimeout)
 	defer cancel()
 
 	if _, err := s.docker(cleanupCtx, args...); err != nil {
 		s.logger.LogAttrs(
 			ctx,
-			slog.LevelWarn,
+			level,
 			"docker resource cleanup failed",
 			slog.String("execution_id", executionID),
 			slog.String("resource", resource),

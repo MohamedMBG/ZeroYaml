@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,7 +24,7 @@ func TestSubmitRunsTheJobAndReportsRunningThenTerminalStatus(t *testing.T) {
 		t.Fatalf("Submit() returned an error: %v", err)
 	}
 	close(executor.release)
-	dispatcher.Close()
+	closeDispatcher(t, dispatcher)
 
 	reports := reporter.all()
 	if len(reports) != 2 {
@@ -57,7 +58,7 @@ func TestSubmitRejectsAJobBeyondTheConcurrencyLimit(t *testing.T) {
 	}
 
 	close(executor.release)
-	dispatcher.Close()
+	closeDispatcher(t, dispatcher)
 }
 
 func TestSubmitFreesTheSlotWhenAnExecutionEnds(t *testing.T) {
@@ -84,7 +85,7 @@ func TestSubmitFreesTheSlotWhenAnExecutionEnds(t *testing.T) {
 		}
 	}
 
-	dispatcher.Close()
+	closeDispatcher(t, dispatcher)
 }
 
 func TestSubmitRejectsAnUnsupportedJobWithoutStartingIt(t *testing.T) {
@@ -99,7 +100,7 @@ func TestSubmitRejectsAnUnsupportedJobWithoutStartingIt(t *testing.T) {
 		t.Errorf("Submit() error = %v, want sandbox.ErrUnsupportedJob", err)
 	}
 
-	dispatcher.Close()
+	closeDispatcher(t, dispatcher)
 	if len(executor.specs()) != 0 || len(reporter.all()) != 0 {
 		t.Error("an unsupported job must not execute or report")
 	}
@@ -107,7 +108,7 @@ func TestSubmitRejectsAnUnsupportedJobWithoutStartingIt(t *testing.T) {
 
 func TestSubmitRejectsJobsAfterClose(t *testing.T) {
 	dispatcher := newTestDispatcher(context.Background(), newScriptedExecutor(sandbox.Result{}), &recordingReporter{}, 1)
-	dispatcher.Close()
+	closeDispatcher(t, dispatcher)
 
 	if err := dispatcher.Submit(newTestJob()); !errors.Is(err, ErrClosed) {
 		t.Errorf("Submit() error = %v, want ErrClosed", err)
@@ -138,7 +139,7 @@ func TestCloseWaitsForACancelledExecutionToReport(t *testing.T) {
 	}
 	<-executor.started
 	cancel()
-	dispatcher.Close()
+	closeDispatcher(t, dispatcher)
 
 	reports := reporter.all()
 	if len(reports) != 2 {
@@ -150,6 +151,35 @@ func TestCloseWaitsForACancelledExecutionToReport(t *testing.T) {
 	if !reporter.contextsAlive() {
 		t.Error("the terminal report must be sent with a context that survives shutdown")
 	}
+}
+
+// TestCloseStopsWaitingWhenItsBudgetEnds covers the shutdown bound: an
+// execution that does not return keeps the Runner from exiting no longer than
+// the caller's budget allows.
+func TestCloseStopsWaitingWhenItsBudgetEnds(t *testing.T) {
+	executor := newScriptedExecutor(sandbox.Result{Outcome: sandbox.OutcomeSucceeded})
+	dispatcher := newTestDispatcher(context.Background(), executor, &recordingReporter{}, 1)
+
+	if err := dispatcher.Submit(newTestJob()); err != nil {
+		t.Fatalf("Submit() returned an error: %v", err)
+	}
+
+	budget, endBudget := context.WithCancel(context.Background())
+	endBudget()
+
+	err := dispatcher.Close(budget)
+	if !errors.Is(err, ErrDrainIncomplete) {
+		t.Fatalf("Close() error = %v, want ErrDrainIncomplete", err)
+	}
+	if !strings.Contains(err.Error(), "1 job execution(s)") {
+		t.Errorf("Close() error = %q, want it to name the one unfinished execution", err)
+	}
+
+	if submitErr := dispatcher.Submit(newTestJob()); !errors.Is(submitErr, ErrClosed) {
+		t.Errorf("Submit() after an incomplete drain error = %v, want ErrClosed", submitErr)
+	}
+
+	close(executor.release)
 }
 
 func TestTerminalReportMapsEveryOutcome(t *testing.T) {
@@ -328,6 +358,19 @@ func (r *recordingReporter) waitForReports(t *testing.T, count int) {
 		case <-timeout:
 			t.Fatalf("received %d reports, want %d", len(r.all()), count)
 		}
+	}
+}
+
+// closeDispatcher drains the dispatcher with a bounded budget, so a test never
+// hangs on an execution that fails to return.
+func closeDispatcher(t *testing.T, dispatcher *Dispatcher) {
+	t.Helper()
+
+	budget, endBudget := context.WithTimeout(context.Background(), 10*time.Second)
+	defer endBudget()
+
+	if err := dispatcher.Close(budget); err != nil {
+		t.Fatalf("Close() returned an error: %v", err)
 	}
 }
 

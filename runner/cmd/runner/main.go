@@ -93,6 +93,11 @@ func run() error {
 	// containers. The deferred Close cancels ctx first, which also covers a
 	// server failure without a signal, and then waits for every execution's
 	// cleanup and final report.
+	//
+	// The RPC drain and the execution drain share one budget that starts when
+	// shutdown is requested, so the process terminates within ShutdownTimeout of
+	// the signal rather than within the RPC drain plus an unbounded wait on
+	// container cleanup and status reporting.
 	dispatcher := jobexecution.NewDispatcher(
 		ctx,
 		sandbox.New(dockerBinary, logger),
@@ -107,9 +112,19 @@ func run() error {
 		cfg.MaxConcurrentJobs,
 		logger,
 	)
+	shutdownBudget, endShutdownBudget := budgetAfterCancel(ctx, cfg.ShutdownTimeout)
+	defer endShutdownBudget()
+
 	defer func() {
 		stopListeningForSignals()
-		dispatcher.Close()
+
+		if err := dispatcher.Close(shutdownBudget); err != nil {
+			logger.Warn(
+				"runner exited before every job execution finished",
+				slog.String("error", err.Error()),
+				slog.Duration("shutdown_timeout", cfg.ShutdownTimeout),
+			)
+		}
 	}()
 
 	server := grpc.NewServer()
@@ -141,6 +156,37 @@ func run() error {
 	)
 
 	return nil
+}
+
+// budgetAfterCancel returns a context that stays alive until timeout has
+// elapsed since ctx was cancelled, and a function that ends it early.
+//
+// It turns the shutdown timeout into one deadline for the whole shutdown
+// sequence: the clock starts when shutdown is requested rather than when the
+// previous stage finished, so the stages cannot add up past the configured
+// budget. The returned context is detached from ctx, because it must stay
+// usable exactly when ctx is already cancelled.
+func budgetAfterCancel(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	budget, endBudget := context.WithCancel(context.WithoutCancel(ctx))
+
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-budget.Done():
+			return
+		}
+
+		expiry := time.NewTimer(timeout)
+		defer expiry.Stop()
+
+		select {
+		case <-expiry.C:
+			endBudget()
+		case <-budget.Done():
+		}
+	}()
+
+	return budget, endBudget
 }
 
 // probeDockerCapabilities reports Docker as an available executor only when
