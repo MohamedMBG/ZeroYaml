@@ -376,3 +376,132 @@ var RunnerRegistrationService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "runner/v1/runner.proto",
 }
+
+const (
+	JobExecutionStatusService_ReportJobStatus_FullMethodName = "/zeroyaml.runner.v1.JobExecutionStatusService/ReportJobStatus"
+)
+
+// JobExecutionStatusServiceClient is the client API for JobExecutionStatusService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// JobExecutionStatusService is implemented by the Control Plane. A Runner that
+// accepted a Job through RunnerService.RunJob uses it to report what that
+// execution did.
+//
+// The split of responsibility is deliberate. The Runner reports execution
+// facts; the Control Plane owns the authoritative Job state, validates every
+// transition, and decides what a report means for the pipeline. A Runner
+// therefore never learns scheduling, retry, or cancellation policy here.
+//
+// The call is safe to repeat. Every report is reconciled against the state the
+// Control Plane already recorded, so a duplicate or a late report is answered
+// explicitly instead of corrupting the Job lifecycle.
+type JobExecutionStatusServiceClient interface {
+	ReportJobStatus(ctx context.Context, in *ReportJobStatusRequest, opts ...grpc.CallOption) (*ReportJobStatusResponse, error)
+}
+
+type jobExecutionStatusServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewJobExecutionStatusServiceClient(cc grpc.ClientConnInterface) JobExecutionStatusServiceClient {
+	return &jobExecutionStatusServiceClient{cc}
+}
+
+func (c *jobExecutionStatusServiceClient) ReportJobStatus(ctx context.Context, in *ReportJobStatusRequest, opts ...grpc.CallOption) (*ReportJobStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReportJobStatusResponse)
+	err := c.cc.Invoke(ctx, JobExecutionStatusService_ReportJobStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// JobExecutionStatusServiceServer is the server API for JobExecutionStatusService service.
+// All implementations must embed UnimplementedJobExecutionStatusServiceServer
+// for forward compatibility.
+//
+// JobExecutionStatusService is implemented by the Control Plane. A Runner that
+// accepted a Job through RunnerService.RunJob uses it to report what that
+// execution did.
+//
+// The split of responsibility is deliberate. The Runner reports execution
+// facts; the Control Plane owns the authoritative Job state, validates every
+// transition, and decides what a report means for the pipeline. A Runner
+// therefore never learns scheduling, retry, or cancellation policy here.
+//
+// The call is safe to repeat. Every report is reconciled against the state the
+// Control Plane already recorded, so a duplicate or a late report is answered
+// explicitly instead of corrupting the Job lifecycle.
+type JobExecutionStatusServiceServer interface {
+	ReportJobStatus(context.Context, *ReportJobStatusRequest) (*ReportJobStatusResponse, error)
+	mustEmbedUnimplementedJobExecutionStatusServiceServer()
+}
+
+// UnimplementedJobExecutionStatusServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedJobExecutionStatusServiceServer struct{}
+
+func (UnimplementedJobExecutionStatusServiceServer) ReportJobStatus(context.Context, *ReportJobStatusRequest) (*ReportJobStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReportJobStatus not implemented")
+}
+func (UnimplementedJobExecutionStatusServiceServer) mustEmbedUnimplementedJobExecutionStatusServiceServer() {
+}
+func (UnimplementedJobExecutionStatusServiceServer) testEmbeddedByValue() {}
+
+// UnsafeJobExecutionStatusServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to JobExecutionStatusServiceServer will
+// result in compilation errors.
+type UnsafeJobExecutionStatusServiceServer interface {
+	mustEmbedUnimplementedJobExecutionStatusServiceServer()
+}
+
+func RegisterJobExecutionStatusServiceServer(s grpc.ServiceRegistrar, srv JobExecutionStatusServiceServer) {
+	// If the following call panics, it indicates UnimplementedJobExecutionStatusServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&JobExecutionStatusService_ServiceDesc, srv)
+}
+
+func _JobExecutionStatusService_ReportJobStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReportJobStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(JobExecutionStatusServiceServer).ReportJobStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: JobExecutionStatusService_ReportJobStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(JobExecutionStatusServiceServer).ReportJobStatus(ctx, req.(*ReportJobStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// JobExecutionStatusService_ServiceDesc is the grpc.ServiceDesc for JobExecutionStatusService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var JobExecutionStatusService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "zeroyaml.runner.v1.JobExecutionStatusService",
+	HandlerType: (*JobExecutionStatusServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ReportJobStatus",
+			Handler:    _JobExecutionStatusService_ReportJobStatus_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "runner/v1/runner.proto",
+}

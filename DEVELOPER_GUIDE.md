@@ -466,9 +466,11 @@ docs/
 This directory is for system architecture documentation.
 
 Start with the [Phase 1 architecture and operating contract](./docs/architecture/phase-1-overview.md),
-then use the focused [Runner identity and registration contract](./docs/architecture/runner-identity.md)
-and [Core Job Model](./docs/architecture/job-model.md) references for the
-implemented foundation and its explicit integration limits. The
+then use the focused [Runner identity and registration contract](./docs/architecture/runner-identity.md),
+[Core Job Model](./docs/architecture/job-model.md),
+[RunJob dispatch contract](./docs/architecture/run-job-contract.md), and
+[Job status reporting contract](./docs/architecture/job-status-contract.md)
+references for the implemented foundation and its explicit integration limits. The
 [Repository Connection Model](./docs/architecture/repository-connection-model.md)
 reference covers how the Control Plane identifies connected repositories and
 references webhook secrets without storing them.
@@ -617,6 +619,62 @@ request and response fields, and its failure semantics are documented in
 The Runner currently reports `accepting_work = false`, so every dispatch is
 rejected with `JOB_REJECTION_RUNNER_UNAVAILABLE` until execution support lands.
 
+### Runner-facing gRPC endpoint
+
+The Control Plane serves every gRPC service a Runner calls on one endpoint, so a
+Runner is configured with a single Control Plane address:
+
+| Property | Default | Purpose |
+| --- | --- | --- |
+| `zeroyaml.registration.port` | `50052` | Port for `RunnerRegistrationService` and `JobExecutionStatusService` |
+| `zeroyaml.registration.heartbeat-timeout` | `15s` | Time without a heartbeat before a Runner is reported `UNAVAILABLE` |
+
+The setting keeps its `zeroyaml.registration` prefix so deployed configuration
+and Runner environment variables stay valid as services are added to the
+endpoint.
+
+`JobExecutionStatusService.ReportJobStatus` is how a Runner reports what one
+execution did. The Control Plane owns authoritative Job state: it validates
+every transition, applies a report only when it advances the Job, and answers a
+duplicate, late, or contradicting report explicitly instead of changing state.
+A terminal report repeats the execution start time, so a lost running report
+cannot leave a finished execution without a Job outcome. The states, the exit
+code and failure reasons, and the full reconciliation and failure rules are
+documented in
+[`docs/architecture/job-status-contract.md`](./docs/architecture/job-status-contract.md).
+
+### GitHub webhook endpoint
+
+The Control Plane receives GitHub webhook deliveries on
+`POST /webhooks/github` on its HTTP port (default `8080`). Configure the GitHub
+webhook with content type `application/json`.
+
+| Property | Default | Purpose |
+| --- | --- | --- |
+| `zeroyaml.github.webhook.max-payload-size` | `5MB` | Largest accepted payload, at most GitHub's 25 MB cap |
+
+`push` deliveries that pass envelope validation are answered `202 Accepted` and
+handed to the downstream delivery handler with the raw body and GitHub delivery
+headers. `ping` and every other event are answered `200 OK` with outcome
+`IGNORED` and start no work. A missing or malformed `X-GitHub-Event` or
+`X-GitHub-Delivery` header, a body that is not a JSON object, a non-JSON content
+type, or an oversized payload is rejected with `400`, `415`, or `413`.
+Signatures are not verified yet (#17), so do not expose the endpoint to
+untrusted networks.
+
+Send a local test delivery:
+
+```powershell
+curl.exe -i -X POST http://localhost:8080/webhooks/github `
+  -H "Content-Type: application/json" `
+  -H "X-GitHub-Event: push" `
+  -H "X-GitHub-Delivery: 72d3162e-cc78-11e3-81ab-4c9367dc0958" `
+  --data '{"ref":"refs/heads/main"}'
+```
+
+The validation order, response body, and hand-off contract are documented in
+[`docs/architecture/github-webhook-ingress.md`](./docs/architecture/github-webhook-ingress.md).
+
 ### Runner development
 
 - Go
@@ -630,7 +688,7 @@ The Runner reads startup configuration from environment variables and keeps safe
 | `ZEROYAML_RUNNER_ID` | `local-runner` | Stable logical Runner identity returned by `GetInfo` and shown in startup logs |
 | `ZEROYAML_RUNNER_VERSION` | `0.1.0` | Runner version returned by `RunnerService.Ping` |
 | `ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT` | `5s` | Bound on draining in-flight RPCs during shutdown |
-| `ZEROYAML_CONTROLPLANE_ADDRESS` | `localhost:50052` | Control Plane registration and heartbeat gRPC endpoint |
+| `ZEROYAML_CONTROLPLANE_ADDRESS` | `localhost:50052` | Control Plane gRPC endpoint for registration, heartbeats, and job status reports |
 | `ZEROYAML_RUNNER_REGISTRATION_TIMEOUT` | `5s` | Bound on the single startup registration attempt |
 | `ZEROYAML_RUNNER_HEARTBEAT_INTERVAL` | `5s` | Interval between heartbeats sent by a registered Runner |
 | `ZEROYAML_RUNNER_HEARTBEAT_TIMEOUT` | `5s` | Bound on each individual heartbeat attempt |
@@ -666,6 +724,32 @@ instead of an acknowledgment. Records never contain the repository location,
 revision, or command arguments, and caller-supplied identifiers are cut to
 128 bytes with a trailing `...(truncated)` marker, so a truncated field is up
 to 143 bytes long.
+
+### Runner execution status reporting
+
+`runner/internal/jobstatus` is the Runner side of
+[`JobExecutionStatusService`](./docs/architecture/job-status-contract.md). It
+builds one observation with `jobstatus.Running`, `jobstatus.Succeeded`, or
+`jobstatus.Failed`, and `Reporter.Report` sends it to
+`ZEROYAML_CONTROLPLANE_ADDRESS`, bounded by the timeout the Reporter was created
+with. A failure diagnostic is cut to 1024 bytes before it is sent, because
+dropping a terminal report over an oversized message would leave the Job without
+an outcome.
+
+Each attempt writes one structured log record, for example:
+
+```text
+time=2024-01-01T00:00:00.000Z level=INFO msg="job status report acknowledged" job_id=0f4b1a1e-... reported_state=succeeded runner_id=local-runner instance_id=... decision=applied job_state=succeeded
+```
+
+A report the Control Plane did not apply is logged at `WARN` with its
+`decision`, because it means the Job already moved on or this process is not the
+one executing it. Records never contain the failure message, which is derived
+from execution output.
+
+Nothing calls the reporter yet: the Runner still rejects every dispatch, so
+there is no execution to report. The package is the seam the execution sandbox
+uses once it lands.
 
 The Go protobuf bindings can be regenerated from the repository root after
 installing the pinned `protoc-gen-go` and `protoc-gen-go-grpc` tool versions:

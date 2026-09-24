@@ -9,10 +9,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * Externalized configuration for the Runner registration gRPC server and the
- * heartbeat liveness policy it enforces. Bean validation and the startup
- * check below make an invalid value fail during application startup instead
- * of silently misjudging Runner liveness.
+ * Externalized configuration for the gRPC endpoint Runners call and for the
+ * heartbeat liveness policy the registry enforces. Bean validation and the
+ * startup check below make an invalid value fail during application startup
+ * instead of silently misjudging Runner liveness.
+ *
+ * <p>The {@code port} is the single Runner-facing endpoint. Every Control Plane
+ * gRPC service a Runner calls is served on it, so the setting keeps its
+ * original {@code zeroyaml.registration} prefix rather than changing deployed
+ * configuration.</p>
  */
 @Validated
 @ConfigurationProperties(prefix = "zeroyaml.registration")
