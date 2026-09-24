@@ -1,9 +1,10 @@
 # GitHub Webhook Ingress
 
 The Control Plane receives GitHub webhook deliveries on one HTTP endpoint. The
-endpoint is an ingress adapter: it checks the delivery envelope, applies the
-supported event allow-list, and hands supported deliveries to a downstream
-handler. It does not parse payloads, verify signatures, or start pipeline work.
+endpoint is an ingress adapter: it checks the delivery envelope, authenticates
+the delivery against the configured webhook secret, applies the supported event
+allow-list, and hands verified deliveries to a downstream handler. It does not
+parse payloads or start pipeline work.
 
 ## Route
 
@@ -13,8 +14,10 @@ POST /webhooks/github
 
 The route is served on the Control Plane HTTP port (Spring Boot `server.port`,
 default `8080`). In GitHub, set the webhook **Payload URL** to
-`https://<control-plane-host>/webhooks/github` and the **Content type** to
-`application/json`. Form-encoded deliveries are rejected.
+`https://<control-plane-host>/webhooks/github`, the **Content type** to
+`application/json`, and the **Secret** to the same value the Control Plane
+reads from `ZEROYAML_GITHUB_WEBHOOK_SECRET`. Form-encoded deliveries are
+rejected.
 
 ## Envelope validation
 
@@ -32,7 +35,38 @@ The body is read at most one byte past the limit, so an oversized or chunked
 request cannot claim more memory than the limit allows. Full JSON parsing is
 left to event normalization.
 
+## Signature verification
+
+Envelope validation only proves the request is shaped like a delivery. The
+`X-Hub-Signature-256` check proves it came from GitHub, and it is the trust
+boundary of the endpoint: a delivery that fails it creates no internal event
+and no job.
+
+| Check | Failure |
+| --- | --- |
+| `X-Hub-Signature-256` is present | `401` |
+| The header reads `sha256=` followed by 64 hexadecimal characters | `401` |
+| HMAC-SHA256 of the raw body under the configured secret equals the header digest | `401` |
+
+Details that matter:
+
+- the HMAC is computed over the request body byte for byte, because
+  re-serializing a parsed payload would change the bytes that were signed;
+- the digest is compared with `MessageDigest.isEqual`, which examines every
+  byte of two equal-length digests. A short-circuiting comparison would reveal
+  how many leading bytes of a guess were correct, which is enough to forge a
+  signature one byte at a time;
+- the digest is accepted in upper or lower case, because hexadecimal is
+  case-insensitive; the `sha256=` prefix is not;
+- the legacy SHA-1 `X-Hub-Signature` header is ignored. Honouring it would let
+  a caller downgrade the delivery to the weaker digest;
+- verification runs **before** the event allow-list, so the `200 OK` answers
+  below cannot be used by an unauthenticated caller to discover which events
+  the Control Plane acts on.
+
 ## Event allow-list
+
+Reached only by a verified delivery.
 
 | Event | Status | Outcome | Downstream handler called |
 | --- | --- | --- | --- |
@@ -59,47 +93,51 @@ Every answer, including rejections, has the same shape:
 ```
 
 `deliveryId` and `event` are `null` when their header failed validation.
-Messages never echo header values or payload content, because both are
-untrusted until the signature is verified.
+Messages never echo header values, signature material, or payload content.
 
 ## Downstream hand-off
 
-A supported delivery is passed to `GitHubWebhookDeliveryHandler` as a
-`GitHubWebhookDelivery`, which keeps:
+A verified delivery with a supported event is passed to
+`GitHubWebhookDeliveryHandler` as a `GitHubWebhookDelivery`, which keeps:
 
-- the raw body byte-for-byte, because signature verification computes an HMAC
-  over the exact bytes GitHub sent;
+- the raw body byte-for-byte, which is exactly what the signature covered;
 - `X-GitHub-Delivery` and `X-GitHub-Event`;
-- `X-Hub-Signature-256`, unverified;
+- `X-Hub-Signature-256`, already verified by the time the handler runs;
 - `X-GitHub-Hook-ID`, `X-GitHub-Hook-Installation-Target-Type`, and
   `X-GitHub-Hook-Installation-Target-ID` when present. Optional headers longer
   than 256 characters are dropped.
 
 The handler runs on the request thread before GitHub receives its answer, so an
 implementation must return quickly. The current handler only writes an audit
-log record. Signature verification (#17) and event normalization (#20) are
-implemented behind this boundary.
+log record. Event normalization (#20) is implemented behind this boundary.
 
 ## Configuration
 
 | Property | Default | Purpose |
 | --- | --- | --- |
 | `zeroyaml.github.webhook.max-payload-size` | `5MB` | Largest accepted payload, between 1 byte and GitHub's 25 MB cap |
+| `zeroyaml.github.webhook.secret` | none | Shared secret the delivery signature is verified against |
 
-Override it with `ZEROYAML_GITHUB_WEBHOOK_MAX_PAYLOAD_SIZE`. A value outside the
-range fails startup.
+Override them with `ZEROYAML_GITHUB_WEBHOOK_MAX_PAYLOAD_SIZE` and
+`ZEROYAML_GITHUB_WEBHOOK_SECRET`. A payload size outside the range fails
+startup, and so does a secret that is missing or shorter than 16 characters:
+the endpoint must never run without a key to authenticate deliveries with. The
+secret has no default and no value in any tracked file; use a high-entropy
+random value, for example `openssl rand -hex 32`.
 
 ## Logging
 
 Each delivery writes one log record with the delivery identifier, the event,
 and the outcome. Accepted deliveries add the payload size, and rejections add
-the status and reason. Records never contain the payload or the signature.
+the status and reason. Records never contain the payload, the signature, or the
+secret.
 
 ## Current limits
 
-- Signatures are not verified yet, so the endpoint must not be exposed where
-  untrusted callers can reach it until #17 lands.
-- Accepted deliveries are not processed further until event normalization (#20)
+- Verified deliveries are not processed further until event normalization (#20)
   exists.
 - Redeliveries are not deduplicated; the delivery identifier is preserved so a
-  downstream consumer can deduplicate.
+  downstream consumer can deduplicate. Recording delivery identifiers under a
+  unique constraint is tracked as #203.
+- One secret is configured for the whole Control Plane. Per-repository secrets
+  and secret rotation are not supported yet.

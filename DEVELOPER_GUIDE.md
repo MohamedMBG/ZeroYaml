@@ -647,32 +647,50 @@ documented in
 
 The Control Plane receives GitHub webhook deliveries on
 `POST /webhooks/github` on its HTTP port (default `8080`). Configure the GitHub
-webhook with content type `application/json`.
+webhook with content type `application/json` and a secret.
 
 | Property | Default | Purpose |
 | --- | --- | --- |
 | `zeroyaml.github.webhook.max-payload-size` | `5MB` | Largest accepted payload, at most GitHub's 25 MB cap |
+| `zeroyaml.github.webhook.secret` | none | Shared secret the delivery signature is verified against |
 
-`push` deliveries that pass envelope validation are answered `202 Accepted` and
-handed to the downstream delivery handler with the raw body and GitHub delivery
-headers. `ping` and every other event are answered `200 OK` with outcome
-`IGNORED` and start no work. A missing or malformed `X-GitHub-Event` or
-`X-GitHub-Delivery` header, a body that is not a JSON object, a non-JSON content
-type, or an oversized payload is rejected with `400`, `415`, or `413`.
-Signatures are not verified yet (#17), so do not expose the endpoint to
-untrusted networks.
-
-Send a local test delivery:
+The secret is required and has no default, so the Control Plane does not start
+without it. Supply it from the environment and set the same value on the GitHub
+webhook:
 
 ```powershell
+$env:ZEROYAML_GITHUB_WEBHOOK_SECRET = (openssl rand -hex 32)
+```
+
+`push` deliveries that pass envelope validation and carry a valid
+`X-Hub-Signature-256` HMAC are answered `202 Accepted` and handed to the
+downstream delivery handler with the raw body and GitHub delivery headers.
+`ping` and every other verified event are answered `200 OK` with outcome
+`IGNORED` and start no work. A missing or malformed `X-GitHub-Event` or
+`X-GitHub-Delivery` header, a body that is not a JSON object, a non-JSON content
+type, or an oversized payload is rejected with `400`, `415`, or `413`, and a
+missing, malformed, or non-matching signature is rejected with `401` before any
+downstream processing.
+
+Send a local test delivery, signed the way GitHub signs one:
+
+```powershell
+$payload = '{"ref":"refs/heads/main"}'
+$hmac = [System.Security.Cryptography.HMACSHA256]::new(
+  [Text.Encoding]::UTF8.GetBytes($env:ZEROYAML_GITHUB_WEBHOOK_SECRET))
+$digest = ($hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($payload)) |
+  ForEach-Object { $_.ToString('x2') }) -join ''
+
 curl.exe -i -X POST http://localhost:8080/webhooks/github `
   -H "Content-Type: application/json" `
   -H "X-GitHub-Event: push" `
   -H "X-GitHub-Delivery: 72d3162e-cc78-11e3-81ab-4c9367dc0958" `
-  --data '{"ref":"refs/heads/main"}'
+  -H "X-Hub-Signature-256: sha256=$digest" `
+  --data $payload
 ```
 
-The validation order, response body, and hand-off contract are documented in
+The validation order, the signature rules, the response body, and the hand-off
+contract are documented in
 [`docs/architecture/github-webhook-ingress.md`](./docs/architecture/github-webhook-ingress.md).
 
 ### Runner development
