@@ -1,6 +1,6 @@
 # ZeroYAML Project Progress
 
-Last updated: 2026-09-23 (Phase 2: GitHub webhook signature verification proposed for issue #17)
+Last updated: 2026-09-23 (Phase 2: repository connection model proposed for issue #18)
 
 Current phase: 2
 
@@ -17,6 +17,8 @@ The status-reporting path for issue #27 is merged into `main`. `JobExecutionStat
 The GitHub webhook endpoint for issue #16 is merged into `main`. `POST /webhooks/github` validates the delivery envelope (event and delivery headers, JSON content type, a bounded payload that opens a JSON object), answers `push` with `202 Accepted` and hands the raw body and GitHub headers to a `GitHubWebhookDeliveryHandler`, and answers `ping` and every other event `200 OK` as ignored without starting work. The handler currently only writes an audit record; event normalization (#20) plugs in behind it.
 
 Webhook signature verification for issue #17 is implemented locally on a task branch and not yet merged. The ingress endpoint recomputes the `X-Hub-Signature-256` HMAC-SHA256 over the raw body under a required, externally supplied secret and compares it with `MessageDigest.isEqual`, so the answer takes the same time whatever the input. A missing, malformed, or non-matching signature is answered `401 Unauthorized` and reaches neither the event allow-list nor the delivery handler, so an unverified delivery creates no internal event or job. The secret is bound from `ZEROYAML_GITHUB_WEBHOOK_SECRET`, has no default and no value in any tracked file, is never logged, and the Control Plane refuses to start without one of at least 16 characters.
+
+The repository connection model for issue #18 is implemented locally on a task branch and not yet merged. It adds the `io.zeroyaml.controlplane.domain.repository` package only; no persistence, transport, or GitHub integration depends on it yet.
 
 ## Completed
 
@@ -48,7 +50,8 @@ Webhook signature verification for issue #17 is implemented locally on a task br
 
 - Issue #17, GitHub webhook signature verification: implemented locally on a task branch and awaiting review. `GitHubWebhookSignatureVerifier` authenticates every delivery before the event allow-list runs, and the rules are documented in `docs/architecture/github-webhook-ingress.md`.
 - Issue #25, Runner Docker execution sandbox: proposed in pull request #260 and awaiting review.
-- The remaining Phase 2 child issues (#18-#24, #26, and #28-#32) are open backlog.
+- Issue #18, repository connection model: implemented locally on a task branch and awaiting review; nothing is merged into `main` yet. `RepositoryConnection` is a Control Plane domain aggregate identified by `RepositoryIdentity` (provider plus owner and name, lower-cased because GitHub resolves them case-insensitively); equality and hash code use only that identity, so a second connection to the same repository is treated as a duplicate. The default branch is a validated `BranchName`, and webhook metadata holds only a `SecretReference` naming an environment variable or future secret-store entry, so no secret material is stored in the model or its string form. `ConnectionStatus` covers `PENDING -> ACTIVE <-> SUSPENDED -> DISCONNECTED` with `InvalidConnectionTransitionException` for illegal moves; only `ACTIVE` connections accept webhook events. Persistence, GitHub App/OAuth flows, webhook handling, and pipeline inference stay out of the model. Documented in `docs/architecture/repository-connection-model.md`.
+- The remaining Phase 2 child issues (#17, #19-#24, #26, and #28-#32) are open backlog.
 
 ## Roadmap
 
@@ -64,6 +67,8 @@ Webhook signature verification for issue #17 is implemented locally on a task br
 
 - Review and merge issue #17, then provision a webhook secret in every environment that runs the Control Plane, because startup now fails without one.
 - Define the repository connection model and persist connected repository metadata (#18, #19).
+- Review and merge issue #16, then verify webhook signatures (#17) behind the `GitHubWebhookDeliveryHandler` boundary before the endpoint is reachable from untrusted networks.
+- Review and merge issue #18, then persist connected repository metadata (#19) on the repository connection model it defines.
 - Normalize supported GitHub events (#20) and define the minimal pipeline model (#21) before pipeline inference (#22) and Job creation (#23).
 - Implement the Runner Docker execution sandbox (#25); it is the first caller of the status reporter and the point at which reports start flowing at runtime.
 
