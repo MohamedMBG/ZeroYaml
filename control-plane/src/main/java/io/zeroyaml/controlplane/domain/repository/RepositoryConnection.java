@@ -65,6 +65,41 @@ public final class RepositoryConnection {
 		return new RepositoryConnection(identity, defaultBranch, webhook, connectedAt);
 	}
 
+	/**
+	 * Rebuilds a connection from previously recorded state, for example when a
+	 * persistence adapter reads it back.
+	 *
+	 * <p>Unlike {@link #connect}, the status is taken as recorded instead of
+	 * starting at {@link ConnectionStatus#PENDING}. The recorded values are
+	 * still validated, so stored data that could not have been produced
+	 * through the lifecycle is rejected rather than silently loaded.</p>
+	 *
+	 * @param identity provider-scoped repository identity
+	 * @param defaultBranch repository default branch
+	 * @param webhook webhook metadata without secret material
+	 * @param status recorded lifecycle status
+	 * @param connectedAt time the connection was recorded
+	 * @param statusChangedAt time of the last status change, not before {@code connectedAt}
+	 * @return the restored connection
+	 */
+	public static RepositoryConnection restore(
+			RepositoryIdentity identity,
+			BranchName defaultBranch,
+			WebhookConfiguration webhook,
+			ConnectionStatus status,
+			Instant connectedAt,
+			Instant statusChangedAt) {
+		var connection = new RepositoryConnection(identity, defaultBranch, webhook, connectedAt);
+		Objects.requireNonNull(status, "status must not be null");
+		Objects.requireNonNull(statusChangedAt, "statusChangedAt must not be null");
+		if (statusChangedAt.isBefore(connectedAt)) {
+			throw new IllegalArgumentException("statusChangedAt must not be before connectedAt");
+		}
+		connection.status = status;
+		connection.statusChangedAt = statusChangedAt;
+		return connection;
+	}
+
 	public RepositoryIdentity identity() {
 		return identity;
 	}
