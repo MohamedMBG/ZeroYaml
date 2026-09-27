@@ -19,7 +19,8 @@ import io.zeroyaml.controlplane.github.webhook.GitHubWebhookResponse.Outcome;
  * Ingress endpoint for GitHub webhook deliveries.
  *
  * <p>The controller is an adapter only. It validates the delivery envelope,
- * applies the supported event allow-list, and hands a supported delivery to the
+ * authenticates the delivery against the configured webhook secret, applies the
+ * supported event allow-list, and hands a supported delivery to the
  * {@link GitHubWebhookDeliveryHandler}; it never parses the payload or starts
  * pipeline work itself.</p>
  *
@@ -31,7 +32,10 @@ import io.zeroyaml.controlplane.github.webhook.GitHubWebhookResponse.Outcome;
  *       does not act on is not a failure, and answering it with an error would
  *       mark it red in GitHub's delivery log;</li>
  *   <li>{@code 400}, {@code 413}, or {@code 415} with outcome {@code REJECTED}
- *       for an invalid envelope.</li>
+ *       for an invalid envelope;</li>
+ *   <li>{@code 401 Unauthorized} with outcome {@code REJECTED} when the
+ *       {@code X-Hub-Signature-256} HMAC is missing, malformed, or does not match
+ *       the configured secret.</li>
  * </ul>
  */
 @RestController
@@ -48,16 +52,27 @@ class GitHubWebhookController {
 	private static final Logger log = LoggerFactory.getLogger(GitHubWebhookController.class);
 
 	private final GitHubWebhookEnvelopeReader envelopeReader;
+	private final GitHubWebhookSignatureVerifier signatureVerifier;
 	private final GitHubWebhookDeliveryHandler deliveryHandler;
 
-	GitHubWebhookController(GitHubWebhookEnvelopeReader envelopeReader, GitHubWebhookDeliveryHandler deliveryHandler) {
+	GitHubWebhookController(
+			GitHubWebhookEnvelopeReader envelopeReader,
+			GitHubWebhookSignatureVerifier signatureVerifier,
+			GitHubWebhookDeliveryHandler deliveryHandler
+	) {
 		this.envelopeReader = Objects.requireNonNull(envelopeReader, "envelopeReader must not be null");
+		this.signatureVerifier = Objects.requireNonNull(signatureVerifier, "signatureVerifier must not be null");
 		this.deliveryHandler = Objects.requireNonNull(deliveryHandler, "deliveryHandler must not be null");
 	}
 
 	@PostMapping(PATH)
 	ResponseEntity<GitHubWebhookResponse> receive(HttpServletRequest request) throws IOException {
 		var delivery = envelopeReader.read(request);
+
+		// Authentication gate. Nothing below this line runs for a delivery whose
+		// signature was not verified, the ping and ignored-event answers included:
+		// an unauthenticated caller must not learn which events this endpoint acts on.
+		signatureVerifier.verify(delivery);
 
 		if (PING_EVENT.equals(delivery.event())) {
 			return ignored(delivery, "ping acknowledged; no pipeline work is started");

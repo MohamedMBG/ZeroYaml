@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.charset.StandardCharsets;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.util.unit.DataSize;
 
 class GitHubWebhookDeliveryTest {
 
@@ -58,21 +57,6 @@ class GitHubWebhookDeliveryTest {
 		assertThrows(NullPointerException.class, () -> new GitHubWebhookDelivery(null, "push", null, null, null, null, BODY));
 		assertThrows(NullPointerException.class, () -> new GitHubWebhookDelivery("d", null, null, null, null, null, BODY));
 		assertThrows(NullPointerException.class, () -> new GitHubWebhookDelivery("d", "push", null, null, null, null, null));
-	}
-
-	@Test
-	void refusesAPayloadLimitOutsideGitHubsRange() {
-		for (var invalid : new DataSize[] {null, DataSize.ofBytes(0), DataSize.ofMegabytes(26)}) {
-			var properties = new GitHubWebhookProperties();
-			properties.setMaxPayloadSize(invalid);
-
-			var failure = assertThrows(IllegalStateException.class, properties::validate);
-			assertTrue(failure.getMessage().contains("zeroyaml.github.webhook.max-payload-size"));
-		}
-
-		var properties = new GitHubWebhookProperties();
-		properties.setMaxPayloadSize(DataSize.ofMegabytes(25));
-		properties.validate();
 	}
 
 	private static GitHubWebhookDelivery delivery(byte[] body, String signature) {

@@ -63,7 +63,11 @@ public final class GitHubWebhookDelivery {
 		return event;
 	}
 
-	/** Unverified {@code sha256=} signature header, for downstream verification. */
+	/**
+	 * The {@code sha256=} signature header as received. It is untrusted until
+	 * {@code GitHubWebhookSignatureVerifier} has checked it, which the ingress
+	 * endpoint does before any delivery is handed downstream.
+	 */
 	public Optional<String> signature256() {
 		return Optional.ofNullable(signature256);
 	}
