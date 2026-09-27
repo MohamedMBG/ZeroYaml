@@ -340,7 +340,7 @@ func startTestRunnerService(
 	t.Helper()
 
 	listener := bufconn.Listen(transportBufferSize)
-	service := &recordingRunnerService{Server: New(identity, discardLogger())}
+	service := &recordingRunnerService{Server: New(identity, &recordingJobSubmitter{}, discardLogger())}
 
 	server := grpc.NewServer()
 	runnerv1.RegisterRunnerServiceServer(server, service)

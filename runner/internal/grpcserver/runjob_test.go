@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -11,7 +13,9 @@ import (
 	"unicode/utf8"
 
 	runnerv1 "github.com/MohamedMBG/ZeroYaml/runner/gen/runner/v1"
+	"github.com/MohamedMBG/ZeroYaml/runner/internal/jobexecution"
 	"github.com/MohamedMBG/ZeroYaml/runner/internal/runneridentity"
+	"github.com/MohamedMBG/ZeroYaml/runner/internal/sandbox"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -22,7 +26,7 @@ import (
 func TestRunJobAcceptsAValidDispatch(t *testing.T) {
 	identity := newAcceptingTestIdentity(t)
 
-	response, err := New(identity, discardLogger()).RunJob(context.Background(), newValidRunJobRequest())
+	response, err := New(identity, &recordingJobSubmitter{}, discardLogger()).RunJob(context.Background(), newValidRunJobRequest())
 	if err != nil {
 		t.Fatalf("RunJob() returned an error: %v", err)
 	}
@@ -44,14 +48,14 @@ func TestRunJobAcceptsAValidDispatch(t *testing.T) {
 	}
 }
 
-// TestRunJobRejectsDispatchWhileNotAcceptingWork pins the behavior of the
-// current Runner, which has no execution service and therefore declines work.
-// The refusal is a Runner state decision, so it is an OK response the Control
+// TestRunJobRejectsDispatchWhileNotAcceptingWork pins the behavior of a Runner
+// that is not ready or has no verified Docker daemon and therefore declines
+// work. The refusal is a Runner state decision, so it is an OK response the Control
 // Plane can act on rather than a transport error.
 func TestRunJobRejectsDispatchWhileNotAcceptingWork(t *testing.T) {
 	identity := newTestIdentity(t)
 
-	response, err := New(identity, discardLogger()).RunJob(context.Background(), newValidRunJobRequest())
+	response, err := New(identity, &recordingJobSubmitter{}, discardLogger()).RunJob(context.Background(), newValidRunJobRequest())
 	if err != nil {
 		t.Fatalf("RunJob() returned an error: %v", err)
 	}
@@ -85,7 +89,7 @@ func TestRunJobRejectsAnUnsupportedProtocolVersion(t *testing.T) {
 	request := newValidRunJobRequest()
 	request.ProtocolVersion = "runner.v99"
 
-	response, err := New(identity, discardLogger()).RunJob(context.Background(), request)
+	response, err := New(identity, &recordingJobSubmitter{}, discardLogger()).RunJob(context.Background(), request)
 	if err != nil {
 		t.Fatalf("RunJob() returned an error: %v", err)
 	}
@@ -201,7 +205,7 @@ func TestRunJobRejectsRequestsThatViolateTheContract(t *testing.T) {
 			// contract check rather than the Runner's availability.
 			identity := newAcceptingTestIdentity(t)
 
-			response, err := New(identity, discardLogger()).RunJob(context.Background(), testCase.request)
+			response, err := New(identity, &recordingJobSubmitter{}, discardLogger()).RunJob(context.Background(), testCase.request)
 			if err == nil {
 				t.Fatalf("RunJob() returned %v, want an error", response)
 			}
@@ -226,7 +230,7 @@ func TestRunJobAcceptsAWorkingDirectoryInsideTheRepository(t *testing.T) {
 				request.Job.Execution.WorkingDirectory = workingDirectory
 			})
 
-			response, err := New(newAcceptingTestIdentity(t), discardLogger()).RunJob(context.Background(), request)
+			response, err := New(newAcceptingTestIdentity(t), &recordingJobSubmitter{}, discardLogger()).RunJob(context.Background(), request)
 			if err != nil {
 				t.Fatalf("RunJob() returned an error: %v", err)
 			}
@@ -259,7 +263,7 @@ func TestRunJobAnswersACancelledRequestWithoutAcknowledging(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			logs := &bytes.Buffer{}
-			server := New(newAcceptingTestIdentity(t), jsonTestLogger(logs))
+			server := New(newAcceptingTestIdentity(t), &recordingJobSubmitter{}, jsonTestLogger(logs))
 
 			response, err := server.RunJob(testCase.ctx, newValidRunJobRequest())
 			if err == nil {
@@ -342,7 +346,7 @@ func TestRunJobLogsOneStructuredRecordPerOutcome(t *testing.T) {
 
 			// The outcome itself is covered by the other tests; only the log
 			// record is examined here.
-			_, _ = New(identity, jsonTestLogger(logs)).RunJob(context.Background(), testCase.request)
+			_, _ = New(identity, &recordingJobSubmitter{}, jsonTestLogger(logs)).RunJob(context.Background(), testCase.request)
 
 			record := singleLogRecord(t, logs)
 			wantFields := map[string]string{
@@ -377,7 +381,7 @@ func TestRunJobLogsNoRepositoryOrCommandDetails(t *testing.T) {
 	request.Job.Execution.Command = []string{"deploy", "--token=" + secret}
 
 	logs := &bytes.Buffer{}
-	if _, err := New(newAcceptingTestIdentity(t), jsonTestLogger(logs)).RunJob(context.Background(), request); err != nil {
+	if _, err := New(newAcceptingTestIdentity(t), &recordingJobSubmitter{}, jsonTestLogger(logs)).RunJob(context.Background(), request); err != nil {
 		t.Fatalf("RunJob() returned an error: %v", err)
 	}
 
@@ -393,7 +397,7 @@ func TestRunJobBoundsCallerSuppliedLogValues(t *testing.T) {
 	request.Job.JobId = strings.Repeat("j", 10*maxLoggedValueLength)
 
 	logs := &bytes.Buffer{}
-	if _, err := New(newAcceptingTestIdentity(t), jsonTestLogger(logs)).RunJob(context.Background(), request); err != nil {
+	if _, err := New(newAcceptingTestIdentity(t), &recordingJobSubmitter{}, jsonTestLogger(logs)).RunJob(context.Background(), request); err != nil {
 		t.Fatalf("RunJob() returned an error: %v", err)
 	}
 
@@ -495,4 +499,119 @@ func singleLogRecord(t *testing.T, output *bytes.Buffer) map[string]any {
 	}
 
 	return record
+}
+
+// TestRunJobStartsExecutionOnlyForAnAcceptedJob shows that acceptance and
+// execution are one decision: the accepted Job is handed to execution exactly
+// once, and a declined or invalid dispatch starts nothing.
+func TestRunJobStartsExecutionOnlyForAnAcceptedJob(t *testing.T) {
+	jobs := &recordingJobSubmitter{}
+
+	if _, err := New(newAcceptingTestIdentity(t), jobs, discardLogger()).RunJob(context.Background(), newValidRunJobRequest()); err != nil {
+		t.Fatalf("RunJob() returned an error: %v", err)
+	}
+	if len(jobs.submitted) != 1 || jobs.submitted[0].GetJobId() != testJobID {
+		t.Fatalf("submitted = %v, want exactly the dispatched job", jobs.submitted)
+	}
+
+	declined := &recordingJobSubmitter{}
+	_, _ = New(newTestIdentity(t), declined, discardLogger()).RunJob(context.Background(), newValidRunJobRequest())
+
+	invalidRequest := newValidRunJobRequest()
+	invalidRequest.Job.Execution.Command = nil
+	_, _ = New(newAcceptingTestIdentity(t), declined, discardLogger()).RunJob(context.Background(), invalidRequest)
+
+	if len(declined.submitted) != 0 {
+		t.Errorf("submitted = %v, want nothing for a declined or invalid dispatch", declined.submitted)
+	}
+}
+
+// TestRunJobRejectsAsUnavailableWithoutAnExecutionService covers a Runner
+// wired without execution support; it must never acknowledge a Job it cannot
+// run.
+func TestRunJobRejectsAsUnavailableWithoutAnExecutionService(t *testing.T) {
+	response, err := New(newAcceptingTestIdentity(t), nil, discardLogger()).RunJob(context.Background(), newValidRunJobRequest())
+	if err != nil {
+		t.Fatalf("RunJob() returned an error: %v", err)
+	}
+
+	if response.GetRejectionReason() != runnerv1.JobRejectionReason_JOB_REJECTION_RUNNER_UNAVAILABLE {
+		t.Errorf("RejectionReason = %s, want %s", response.GetRejectionReason(), runnerv1.JobRejectionReason_JOB_REJECTION_RUNNER_UNAVAILABLE)
+	}
+}
+
+// TestRunJobMapsSubmitFailures pins how each reason for not starting an
+// execution reaches the Control Plane. Runner state is a rejection another
+// Runner may resolve; a Job this Runner cannot map is a failed precondition.
+func TestRunJobMapsSubmitFailures(t *testing.T) {
+	testCases := []struct {
+		name       string
+		err        error
+		wantCode   codes.Code
+		wantReason runnerv1.JobRejectionReason
+	}{
+		{
+			name:       "at capacity",
+			err:        jobexecution.ErrAtCapacity,
+			wantCode:   codes.OK,
+			wantReason: runnerv1.JobRejectionReason_JOB_REJECTION_RUNNER_UNAVAILABLE,
+		},
+		{
+			name:       "shutting down",
+			err:        jobexecution.ErrClosed,
+			wantCode:   codes.OK,
+			wantReason: runnerv1.JobRejectionReason_JOB_REJECTION_RUNNER_UNAVAILABLE,
+		},
+		{
+			name:     "unsupported job",
+			err:      fmt.Errorf("%w: repository scheme %q is not supported", sandbox.ErrUnsupportedJob, "ssh"),
+			wantCode: codes.FailedPrecondition,
+		},
+		{
+			name:     "unexpected failure",
+			err:      errors.New("boom"),
+			wantCode: codes.Internal,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			jobs := &recordingJobSubmitter{err: testCase.err}
+
+			response, err := New(newAcceptingTestIdentity(t), jobs, discardLogger()).RunJob(context.Background(), newValidRunJobRequest())
+
+			if code := status.Code(err); code != testCase.wantCode {
+				t.Fatalf("status code = %s, want %s: %v", code, testCase.wantCode, err)
+			}
+			if testCase.wantCode != codes.OK {
+				return
+			}
+			if response.GetAcceptance() != runnerv1.JobAcceptance_JOB_REJECTED {
+				t.Errorf("Acceptance = %s, want %s", response.GetAcceptance(), runnerv1.JobAcceptance_JOB_REJECTED)
+			}
+			if response.GetRejectionReason() != testCase.wantReason {
+				t.Errorf("RejectionReason = %s, want %s", response.GetRejectionReason(), testCase.wantReason)
+			}
+			if response.GetMessage() != testCase.err.Error() {
+				t.Errorf("Message = %q, want %q", response.GetMessage(), testCase.err.Error())
+			}
+		})
+	}
+}
+
+// recordingJobSubmitter records every Job handed to execution and answers
+// with err.
+type recordingJobSubmitter struct {
+	err       error
+	submitted []*runnerv1.JobSpecification
+}
+
+func (r *recordingJobSubmitter) Submit(job *runnerv1.JobSpecification) error {
+	if r.err != nil {
+		return r.err
+	}
+
+	r.submitted = append(r.submitted, job)
+
+	return nil
 }

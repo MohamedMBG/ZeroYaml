@@ -31,8 +31,14 @@ capabilities that have been verified locally.
 `accepting_work` is a Runner-reported fact. The Control Plane must still apply
 its own registry, lease, capability, and scheduling rules before assigning work.
 
-The current Runner has no execution service yet, so `GetInfo` reports
-`UNAVAILABLE` and `accepting_work = false`.
+The Runner probes its Docker daemon once at startup. Only a daemon that answers
+is reported as `docker_available = true` with `supported_executors =
+["docker"]`. `GetInfo` reports `accepting_work = true` only when the Runner is
+`READY` and Docker is available; otherwise it reports `accepting_work = false`
+and every dispatch is rejected as unavailable. The registration request is sent
+before the Runner becomes `READY`, so it always carries
+`accepting_work = false`. The execution rules are documented in
+[`runner-execution-sandbox.md`](./runner-execution-sandbox.md).
 
 ## Registration semantics
 

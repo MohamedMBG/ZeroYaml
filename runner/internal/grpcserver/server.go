@@ -10,17 +10,27 @@ import (
 	"github.com/MohamedMBG/ZeroYaml/runner/internal/runnerinfoproto"
 )
 
+// JobSubmitter starts the execution of an accepted Job without waiting for it.
+// An error means the Job was not started; see RunJob for how each error is
+// answered.
+type JobSubmitter interface {
+	Submit(job *runnerv1.JobSpecification) error
+}
+
 type Server struct {
 	runnerv1.UnimplementedRunnerServiceServer
 	identity runneridentity.Identity
+	jobs     JobSubmitter
 	logger   *slog.Logger
 }
 
-// New creates the Runner gRPC service for one process identity. The logger
-// receives one structured record per RunJob dispatch.
-func New(identity runneridentity.Identity, logger *slog.Logger) *Server {
+// New creates the Runner gRPC service for one process identity. Accepted Jobs
+// are handed to jobs; a nil jobs rejects every dispatch as unavailable. The
+// logger receives one structured record per RunJob dispatch.
+func New(identity runneridentity.Identity, jobs JobSubmitter, logger *slog.Logger) *Server {
 	return &Server{
 		identity: identity,
+		jobs:     jobs,
 		logger:   logger,
 	}
 }
