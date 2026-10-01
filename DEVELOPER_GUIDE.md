@@ -694,6 +694,36 @@ The validation order, the signature rules, the response body, and the hand-off
 contract are documented in
 [`docs/architecture/github-webhook-ingress.md`](./docs/architecture/github-webhook-ingress.md).
 
+### Control Plane database
+
+The Control Plane stores connected repository metadata in PostgreSQL. Flyway
+applies the migrations in `control-plane/src/main/resources/db/migration` at
+startup, so the schema is always created or upgraded before the service
+accepts traffic.
+
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `ZEROYAML_DATABASE_URL` | `jdbc:postgresql://localhost:5432/zeroyaml` | JDBC URL of the Control Plane database |
+| `ZEROYAML_DATABASE_USERNAME` | `zeroyaml` | Database user |
+| `ZEROYAML_DATABASE_PASSWORD` | none | Database password; never stored in a tracked file |
+
+The defaults match the `postgres` service in `infra/compose.yaml`. The
+password has no default, so a Control Plane started without it stops during
+startup with `no password was provided`. For local development:
+
+```powershell
+docker compose -f .\infra\compose.yaml up -d postgres
+$env:ZEROYAML_DATABASE_PASSWORD = 'zeroyaml'
+```
+
+Obtaining a connection is bounded at 5 seconds and each statement at 5
+seconds, so an unreachable database fails startup and requests instead of
+hanging them.
+
+The table layout, the duplicate rule, and the locking behavior are documented
+in
+[`docs/architecture/repository-connection-model.md`](./docs/architecture/repository-connection-model.md#persistence).
+
 ### Runner development
 
 - Go
@@ -882,6 +912,10 @@ Run Control Plane tests:
 ```powershell
 .\control-plane\mvnw.cmd test
 ```
+
+The database tests and the application context test start a disposable
+`postgres:16-alpine` container through Testcontainers, so Docker must be
+running. They never use the `infra/compose.yaml` database.
 
 When the Runner is initialized:
 

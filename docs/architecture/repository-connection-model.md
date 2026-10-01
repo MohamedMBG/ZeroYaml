@@ -3,10 +3,13 @@
 The Control Plane owns `RepositoryConnection`. A connection records that one
 source repository is connected to ZeroYAML, which branch is its default, how
 its webhook deliveries are verified, and whether those deliveries may trigger
-work. It is a domain model only: it is not a persistence entity, a GitHub API
-client, or a webhook handler.
+work. The aggregate itself is a domain model only: it is not a persistence
+entity, a GitHub API client, or a webhook handler.
 
-The model lives in `io.zeroyaml.controlplane.domain.repository`.
+The model lives in `io.zeroyaml.controlplane.domain.repository`. Its
+PostgreSQL persistence and application service live in
+`io.zeroyaml.controlplane.connection` and are described under
+[Persistence](#persistence).
 
 ## Model contents
 
@@ -74,9 +77,84 @@ The default branch and webhook configuration can change while the connection
 is not disconnected, for example when the provider reports a new default
 branch or the signing secret is rotated to a new reference.
 
+## Persistence
+
+Connected repositories are stored in PostgreSQL so they survive a Control
+Plane restart (#19). The layers are:
+
+| Layer | Type | Responsibility |
+| --- | --- | --- |
+| Application service | `RepositoryConnectionService` | Connect, find, and change connections; stamps times from its clock |
+| Port | `RepositoryConnectionStore` | Storage contract, independent of the technology |
+| Adapter | `JdbcRepositoryConnectionStore` | PostgreSQL implementation using `JdbcClient` |
+| Schema | `db/migration/V1__create_repository_connection.sql` | Flyway migration run at startup |
+
+`RepositoryConnection.restore` rebuilds an aggregate from stored values. It
+validates them the same way the lifecycle does, so a row edited into a state the
+domain could not produce is rejected when read instead of being loaded.
+
+### Table
+
+`repository_connection` has one row per connected repository:
+
+| Column | Content |
+| --- | --- |
+| `id` | Surrogate key, generated |
+| `provider`, `owner`, `name` | Canonical `RepositoryIdentity`, lower-case owner and name |
+| `default_branch` | `BranchName` |
+| `webhook_secret_reference` | `SecretReference` name only, never the secret value |
+| `status` | `ConnectionStatus` name |
+| `connected_at`, `status_changed_at` | `timestamptz`, microsecond precision |
+
+Check constraints restrict the provider and status values, require a lower-case
+identity, and require `status_changed_at >= connected_at`, so rows written
+outside the Control Plane cannot contradict the domain rules.
+
+### Duplicate identities
+
+The `repository_connection_identity_key` unique constraint on
+`(provider, owner, name)` enforces the aggregate identity. The adapter inserts
+with `ON CONFLICT ... DO NOTHING` and reports a skipped insert as
+`DuplicateRepositoryConnectionException`. When several Control Plane
+instances connect the same repository at once, exactly one insert succeeds and
+the others get the same exception every time. Because the identity is
+canonicalized first, `MohamedMBG/ZeroYaml` and `mohamedmbg/zeroyaml` are the
+same duplicate.
+
+The constraint covers `DISCONNECTED` rows too. A disconnected repository
+therefore cannot be connected again yet; how to reconnect (reactivating the row
+or archiving it) is left to the issue that adds a reconnect flow.
+
+### Updates and concurrency
+
+`RepositoryConnectionStore.update` reads the row with `SELECT ... FOR UPDATE`,
+applies the change to the rebuilt aggregate, and writes the result in the same
+transaction. Concurrent updates of one repository are serialized by the row
+lock, including across Control Plane instances, and each change starts from the
+latest recorded state. If the change throws, for example with an
+`InvalidConnectionTransitionException`, the transaction rolls back and nothing
+is written. The service reads its clock only after the lock is granted, so a
+transition that waited for another one is never stamped earlier than it.
+
+Returned connections are detached snapshots. Changing one has no effect on the
+stored record.
+
+### Timestamps
+
+PostgreSQL `timestamptz` keeps microseconds. The service truncates its clock to
+microseconds, and the adapter truncates again before writing. It never rounds,
+so a stored time never moves later than the time the domain produced, and the
+ordering of `connected_at` and `status_changed_at` survives the round trip.
+
+### Configuration
+
+The datasource is configured from the environment; see the Control Plane
+database section of `DEVELOPER_GUIDE.md`. Every connection attempt is bounded
+at 5 seconds and every statement at 5 seconds.
+
 ## Out of scope
 
-- PostgreSQL persistence and migrations (#19).
+- Reconnecting a disconnected repository.
 - GitHub App installation and OAuth flows.
 - Webhook delivery handling and signature verification (#16, #17).
 - Pipeline inference (#22).

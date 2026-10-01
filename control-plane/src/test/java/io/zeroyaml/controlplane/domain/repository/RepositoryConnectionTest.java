@@ -158,6 +158,44 @@ class RepositoryConnectionTest {
 	}
 
 	@Test
+	void restoresRecordedStateAndKeepsEnforcingTheLifecycle() {
+		var connection = RepositoryConnection.restore(
+				IDENTITY, MAIN, WEBHOOK, ConnectionStatus.SUSPENDED, CONNECTED_AT, SUSPENDED_AT);
+
+		assertEquals(IDENTITY, connection.identity());
+		assertEquals(MAIN, connection.defaultBranch());
+		assertEquals(WEBHOOK, connection.webhook());
+		assertEquals(ConnectionStatus.SUSPENDED, connection.status());
+		assertEquals(CONNECTED_AT, connection.connectedAt());
+		assertEquals(SUSPENDED_AT, connection.statusChangedAt());
+
+		assertThrows(IllegalArgumentException.class, () -> connection.activate(ACTIVATED_AT));
+		connection.activate(DISCONNECTED_AT);
+		assertEquals(ConnectionStatus.ACTIVE, connection.status());
+	}
+
+	@Test
+	void restoredDisconnectedConnectionStaysTerminal() {
+		var connection = RepositoryConnection.restore(
+				IDENTITY, MAIN, WEBHOOK, ConnectionStatus.DISCONNECTED, CONNECTED_AT, DISCONNECTED_AT);
+
+		assertThrows(InvalidConnectionTransitionException.class, () -> connection.activate(DISCONNECTED_AT));
+		assertThrows(IllegalStateException.class, () -> connection.changeDefaultBranch(new BranchName("trunk")));
+	}
+
+	@Test
+	void rejectsRecordedStateThatTheLifecycleCannotProduce() {
+		assertThrows(IllegalArgumentException.class, () -> RepositoryConnection.restore(
+				IDENTITY, MAIN, WEBHOOK, ConnectionStatus.ACTIVE, ACTIVATED_AT, CONNECTED_AT));
+		assertThrows(NullPointerException.class, () -> RepositoryConnection.restore(
+				IDENTITY, MAIN, WEBHOOK, null, CONNECTED_AT, CONNECTED_AT));
+		assertThrows(NullPointerException.class, () -> RepositoryConnection.restore(
+				IDENTITY, MAIN, WEBHOOK, ConnectionStatus.ACTIVE, CONNECTED_AT, null));
+		assertThrows(NullPointerException.class, () -> RepositoryConnection.restore(
+				null, MAIN, WEBHOOK, ConnectionStatus.ACTIVE, CONNECTED_AT, CONNECTED_AT));
+	}
+
+	@Test
 	void stringRepresentationContainsOnlySecretReference() {
 		var text = newConnection().toString();
 
