@@ -1,6 +1,6 @@
 # ZeroYAML Project Progress
 
-Last updated: 2026-09-23 (Phase 2: Runner execution status reporting)
+Last updated: 2026-10-01 (Phase 2: minimal pipeline model)
 
 Current phase: 2
 
@@ -10,9 +10,9 @@ Phase gate: work in a later phase is locked until the current phase parent issue
 
 Phase 1 — Foundation & Core Runtime is complete. Issue #33 and every child issue (#1-#15) are closed: the control-plane and runner foundations are bootstrapped, the shared runner gRPC contract is checked in, and the Control Plane can call `RunnerService.Ping` through a generated Java client. Runner startup configuration is externalized, so local and future deployment environments provide explicit endpoint, identity, and version settings. Runner shutdown drains in-flight RPCs within a bounded timeout and releases the listener instead of dropping work. The Control Plane hosts a `RunnerRegistrationService` gRPC server backed by an in-memory registry, and the Runner registers once at startup before serving; a Control Plane that is unreachable or that reports an identity conflict leaves the Runner status unavailable instead of silently reporting readiness. The registration service also exposes `Heartbeat`, reusing the `(runner_id, instance_id)` identity pair: a registered Runner sends a heartbeat at a configurable interval, and the Control Plane derives `HEALTHY` / `UNAVAILABLE` liveness for each registry entry from the elapsed time since its last acknowledged registration or heartbeat, with no background sweep or distributed failure detector. The core Job model and the `RunJob` gRPC contract are defined and the Runner handles `RunJob` dispatch (still rejecting every job with `JOB_REJECTION_RUNNER_UNAVAILABLE`, since execution is out of Phase 1 scope). Local infrastructure is available for development. CI/CD validates both services, requires progress updates on pull requests, protects `main` behind reviewed changes, and blocks pull requests for later phases.
 
-Phase 2 — GitHub Integration & First E2E Pipeline is the active delivery phase (parent issue #34). Its remaining child issues are open backlog: GitHub webhook endpoint and signature verification, repository connection model and metadata persistence, GitHub event normalization, minimal pipeline model and inference, executable Job creation from a pipeline, minimal healthy Runner selection, the Runner Docker execution sandbox, log streaming, execution/Job state persistence, lifecycle event publishing, the first end-to-end pipeline scenario, an end-to-end test, and local workflow documentation. Phases 3-7 remain locked backlog.
+Phase 2 — GitHub Integration & First E2E Pipeline is the active delivery phase (parent issue #34). Its child issues, whose individual state is tracked on GitHub, cover: GitHub webhook endpoint and signature verification, repository connection model and metadata persistence, GitHub event normalization, minimal pipeline model and inference, executable Job creation from a pipeline, minimal healthy Runner selection, the Runner Docker execution sandbox, log streaming, execution/Job state persistence, lifecycle event publishing, the first end-to-end pipeline scenario, an end-to-end test, and local workflow documentation. Phases 3-7 remain locked backlog.
 
-The status-reporting path for issue #27 is implemented locally but not yet merged. `JobExecutionStatusService.ReportJobStatus` carries execution facts from a Runner back to the Control Plane, which owns authoritative Job state: a running report starts a queued Job, a terminal report completes it as succeeded or failed with a reason and, where available, an exit code. Duplicate, late, and contradicting reports are answered explicitly and never change recorded state, and a terminal report repeats the execution start time so a lost running report cannot strand a finished execution. The Control Plane now serves every Runner-facing gRPC service on one endpoint, keeping the existing `zeroyaml.registration.port` setting. The Runner side is a reporting client that execution support will call; the Runner still rejects every dispatch, so nothing reports status at runtime yet.
+The status-reporting path for issue #27 is merged. `JobExecutionStatusService.ReportJobStatus` carries execution facts from a Runner back to the Control Plane, which owns authoritative Job state: a running report starts a queued Job, a terminal report completes it as succeeded or failed with a reason and, where available, an exit code. Duplicate, late, and contradicting reports are answered explicitly and never change recorded state, and a terminal report repeats the execution start time so a lost running report cannot strand a finished execution. The Control Plane now serves every Runner-facing gRPC service on one endpoint, keeping the existing `zeroyaml.registration.port` setting. The Runner side is a reporting client that execution support will call; the Runner still rejects every dispatch, so nothing reports status at runtime yet.
 
 ## Completed
 
@@ -41,8 +41,8 @@ The status-reporting path for issue #27 is implemented locally but not yet merge
 
 ## In progress
 
-- Issue #27, Runner execution status reporting: implemented locally on a task branch and awaiting review. The shared contract adds `JobExecutionStatusService.ReportJobStatus`, the Control Plane reconciles every report against the Job it owns, and `runner/internal/jobstatus` is the Runner-side reporting client.
-- The remaining Phase 2 child issues (#16-#26 and #28-#32) are open backlog; none have started implementation yet.
+- Issue #21, minimal pipeline model: implemented locally on a task branch and awaiting review. `io.zeroyaml.controlplane.domain.pipeline` adds `Pipeline`, `PipelineStep`, `PipelineId`, `PipelineStatus`, and `PipelineFailure`. A pipeline is an immutable, validated, ordered list of uniquely named steps against one repository revision; it rejects empty, oversized (more than 50 steps), null-containing, and duplicate-named step lists at construction, and a step reuses the Job model's `ExecutionDefinition` so it maps onto a Job without translation. It has no persistence, inference, or Job-creation behavior yet; those are issues #22, #23, and #28. See [`docs/architecture/pipeline-model.md`](./architecture/pipeline-model.md).
+- The status of the other Phase 2 child issues was not re-verified for this update; confirm each issue's state on GitHub before starting it.
 
 ## Roadmap
 
@@ -56,11 +56,9 @@ The status-reporting path for issue #27 is implemented locally but not yet merge
 
 ## Next steps
 
-- Review and merge issue #27 so the status-reporting contract is available to the execution work that depends on it.
-- Continue Phase 2 work: GitHub webhook endpoint and signature verification (#16, #17) are the entry point the rest of the phase depends on.
-- Define the repository connection model and persist connected repository metadata (#18, #19).
-- Normalize supported GitHub events (#20) and define the minimal pipeline model (#21) before pipeline inference (#22) and Job creation (#23).
-- Implement the Runner Docker execution sandbox (#25); it is the first caller of the status reporter and the point at which reports start flowing at runtime.
+- Review and merge issue #21 so the pipeline model is available to pipeline inference (#22) and Job creation (#23).
+- Continue Phase 2 work: normalize supported GitHub events (#20), then infer a pipeline from repository content (#22) and create executable Jobs from it (#23).
+- Implement the Runner Docker execution sandbox (#25) if it has not landed; it is the first caller of the status reporter and the point at which reports start flowing at runtime.
 
 ## Risks and blockers
 
