@@ -1,5 +1,7 @@
 package io.zeroyaml.controlplane.registration;
 
+import java.util.List;
+
 import io.zeroyaml.controlplane.runner.RunnerInfo;
 
 /**
@@ -28,4 +30,15 @@ public interface RunnerRegistry {
 	 * time elapsed since its last acknowledged registration or heartbeat.
 	 */
 	RunnerLiveness livenessOf(String runnerId);
+
+	/**
+	 * Returns a snapshot of every registered Runner whose liveness is
+	 * {@link RunnerLiveness#HEALTHY} at the time of the call, in no guaranteed
+	 * order. The registry owns the liveness policy, so callers that need an
+	 * eligible Runner ask here instead of re-deriving health from timestamps.
+	 *
+	 * <p>The snapshot is not a reservation: a listed Runner can stop sending
+	 * heartbeats immediately afterwards.</p>
+	 */
+	List<RegisteredRunner> healthyRunners();
 }

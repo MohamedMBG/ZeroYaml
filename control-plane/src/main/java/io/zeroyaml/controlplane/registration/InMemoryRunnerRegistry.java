@@ -3,6 +3,7 @@ package io.zeroyaml.controlplane.registration;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -119,7 +120,20 @@ class InMemoryRunnerRegistry implements RunnerRegistry {
 			return RunnerLiveness.UNKNOWN;
 		}
 
-		var elapsed = Duration.between(registered.lastSeenAt(), clock.instant());
+		return livenessAt(registered, clock.instant());
+	}
+
+	@Override
+	public List<RegisteredRunner> healthyRunners() {
+		// One instant for the whole scan, so every entry is judged against the same moment.
+		var now = clock.instant();
+		return runnersByRunnerId.values().stream()
+				.filter(registered -> livenessAt(registered, now) == RunnerLiveness.HEALTHY)
+				.toList();
+	}
+
+	private RunnerLiveness livenessAt(RegisteredRunner registered, Instant now) {
+		var elapsed = Duration.between(registered.lastSeenAt(), now);
 		return elapsed.compareTo(heartbeatTimeout) > 0 ? RunnerLiveness.UNAVAILABLE : RunnerLiveness.HEALTHY;
 	}
 }

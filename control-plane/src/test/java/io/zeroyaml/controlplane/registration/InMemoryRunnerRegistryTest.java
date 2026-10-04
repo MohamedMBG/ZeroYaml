@@ -198,6 +198,54 @@ class InMemoryRunnerRegistryTest {
 		assertEquals(registered.registrationId(), reRegistered.registrationId());
 	}
 
+	@Test
+	void listsNoHealthyRunnersWhenNothingIsRegistered() {
+		var registry = newRegistry(Instant.EPOCH);
+
+		assertTrue(registry.healthyRunners().isEmpty());
+	}
+
+	@Test
+	void listsOnlyRunnersWhoseHeartbeatIsWithinTheTimeout() {
+		var clock = new MutableClock(Instant.EPOCH);
+		var registry = newRegistry(clock);
+		registry.register(runner("runner-stale", "instance-1"));
+		registry.register(runner("runner-fresh", "instance-1"));
+
+		clock.advance(HEARTBEAT_TIMEOUT.minusSeconds(1));
+		registry.heartbeat("runner-fresh", "instance-1");
+		clock.advance(Duration.ofSeconds(2));
+
+		var healthy = registry.healthyRunners();
+
+		assertEquals(List.of("runner-fresh"), healthy.stream().map(entry -> entry.runner().runnerId()).toList());
+	}
+
+	@Test
+	void listsARunnerAgainOnceItsHeartbeatResumes() {
+		var clock = new MutableClock(Instant.EPOCH);
+		var registry = newRegistry(clock);
+		registry.register(runner("runner-1", "instance-1"));
+
+		clock.advance(HEARTBEAT_TIMEOUT.plusSeconds(1));
+		assertTrue(registry.healthyRunners().isEmpty());
+
+		registry.heartbeat("runner-1", "instance-1");
+		assertEquals(1, registry.healthyRunners().size());
+	}
+
+	@Test
+	void doesNotListARunnerRejectedAsAnIdentityConflict() {
+		var registry = newRegistry(Instant.EPOCH);
+		registry.register(runner("runner-1", "instance-1"));
+		registry.register(runner("runner-1", "instance-2"));
+
+		var healthy = registry.healthyRunners();
+
+		assertEquals(1, healthy.size());
+		assertEquals("instance-1", healthy.get(0).runner().instanceId());
+	}
+
 	private static InMemoryRunnerRegistry newRegistry(Instant instant) {
 		return newRegistry(Clock.fixed(instant, ZoneOffset.UTC));
 	}

@@ -1,6 +1,6 @@
 # ZeroYAML Project Progress
 
-Last updated: 2026-09-27 (Phase 2: connected repository persistence proposed for issue #19)
+Last updated: 2026-10-04 (Phase 2: minimal healthy Runner selection proposed for issue #24)
 
 Current phase: 2
 
@@ -23,6 +23,8 @@ The repository connection model for issue #18 is merged into `main`. It adds the
 Connected repository persistence for issue #19 is implemented locally on a task branch and not yet merged. With it, the Control Plane stores `RepositoryConnection` in PostgreSQL: a Flyway migration (`V1__create_repository_connection.sql`) creates the `repository_connection` table at startup, `JdbcRepositoryConnectionStore` implements the `RepositoryConnectionStore` port with `JdbcClient`, and `RepositoryConnectionService` connects, reads, and changes connections. A unique constraint on the canonical `(provider, owner, name)` identity rejects a duplicate connection deterministically as `DuplicateRepositoryConnectionException`, including under concurrent connects, and updates run under a `SELECT ... FOR UPDATE` row lock so concurrent changes are serialized and a failed change writes nothing. Only the webhook secret reference is stored, never secret material. The datasource is externalized through `ZEROYAML_DATABASE_URL`, `ZEROYAML_DATABASE_USERNAME`, and `ZEROYAML_DATABASE_PASSWORD` (no default), with 5-second connection and statement timeouts. No caller uses the service yet; webhook event normalization (#20) and pipeline inference (#22) are its first consumers.
 
 The Runner Docker execution sandbox for issue #25 is merged into `main`. A Runner whose Docker daemon answers at startup and whose registration was accepted reports `accepting_work = true`, and each accepted `RunJob` starts a background execution: a workspace volume, a checkout container that fetches the dispatched revision, and a Job container that runs the dispatched command as its entrypoint in the dispatched working directory, under memory, process-count, and `no-new-privileges` bounds and a configurable timeout. Every container and the volume are removed on success, failure, timeout, and cancellation, and each execution sends a running and a terminal status report through the issue #27 reporter. Job image and timeout are Runner configuration because the `runner.v1` contract does not carry them yet.
+
+Minimal healthy Runner selection for issue #24 is implemented locally on a task branch and not yet merged. With it, the Control Plane can choose where a queued Job runs: `RunnerSelector` is the seam and `HealthyRunnerSelector` the first strategy. A Runner is eligible exactly when the registry reports it registered and `HEALTHY`, and the eligible Runner with the smallest `runnerId` is selected, so the same registry state always gives the same answer. A selection returns a `JobDispatchContext` pairing the Job with the chosen Runner's `runnerId` and `instanceId`; with no healthy Runner it returns an explicit `BLOCKED_NO_HEALTHY_RUNNER` outcome and leaves the Job `QUEUED`. Nothing calls the selector yet; Job creation (#23) and the end-to-end pipeline scenario are its first consumers. See [`docs/architecture/runner-selection.md`](./architecture/runner-selection.md).
 
 ## Completed
 
@@ -56,7 +58,8 @@ The Runner Docker execution sandbox for issue #25 is merged into `main`. A Runne
 ## In progress
 
 - Issue #19, connected repository persistence: implemented locally on a task branch and awaiting review; nothing is merged into `main` yet. The persistence design (table, duplicate rule, locking, timestamp precision) is documented under Persistence in `docs/architecture/repository-connection-model.md`, and the database configuration in `DEVELOPER_GUIDE.md`.
-- The remaining Phase 2 child issues (#20-#24, #26, and #28-#32) are open backlog.
+- Issue #24, minimal healthy Runner selection: implemented locally on a task branch and awaiting review; nothing is merged into `main` yet. `RunnerRegistry` gains `healthyRunners()`, and the new `io.zeroyaml.controlplane.scheduling` package holds the selector, its outcome, and the dispatch context. The issue lists #23 as a dependency, and #23 is still open; the selector depends only on the registry and the existing Job model, so it was built against `main` and does not consume any #23 output.
+- The remaining Phase 2 child issues (#20-#23, #26, and #28-#32) are open backlog or in review; confirm each issue's state on GitHub before starting it.
 
 ## Roadmap
 
@@ -73,6 +76,7 @@ The Runner Docker execution sandbox for issue #25 is merged into `main`. A Runne
 - Review and merge issue #19, then provision `ZEROYAML_DATABASE_PASSWORD` (and the URL and user outside local development) in every environment that runs the Control Plane, because startup fails without a reachable database.
 - Provision a webhook secret (`ZEROYAML_GITHUB_WEBHOOK_SECRET`) in every environment that runs the Control Plane, because startup fails without one since #17.
 - Normalize supported GitHub events (#20) and define the minimal pipeline model (#21) before pipeline inference (#22) and Job creation (#23).
+- Review and merge issue #24, then have Job creation (#23) queue Jobs and call `RunnerSelector` before dispatch, handling `BLOCKED_NO_HEALTHY_RUNNER` by leaving the Job queued and asking again.
 - Carry the Job image and timeout in the `runner.v1` contract so they come from the Job definition instead of Runner configuration; this is a cross-service contract change that needs its own issue.
 - Stream and capture Job container logs (#26) on top of the sandbox.
 
@@ -91,6 +95,9 @@ The Runner Docker execution sandbox for issue #25 is merged into `main`. A Runne
 - The Control Plane refuses to start without `ZEROYAML_GITHUB_WEBHOOK_SECRET`. Every environment and any future deployment pipeline must supply one before the service is started.
 - One webhook secret is configured for the whole Control Plane. Per-repository secrets and rotation without downtime are not supported; they belong with repository metadata persistence (#19) and Phase 6 security work.
 - A verified delivery can still be replayed, because deliveries are not deduplicated yet. Recording delivery identifiers under a unique constraint is tracked as issue #203.
+
+- Runner selection (#24) is stateless and takes the smallest `runnerId` among healthy Runners, so it neither balances load nor reserves a Runner: while that Runner stays healthy it receives all work, and concurrent callers can be handed the same Runner. There is also no retry loop; a blocked Job waits until a caller asks again. Capacity, leases, and queueing are later scheduling work.
+- Selection ignores the registration snapshot's `acceptingWork` flag because it is captured before the Runner's own startup checks finish and heartbeats never refresh it. A healthy Runner that is not accepting work is therefore still selected, and its `RunJob` rejection is the signal to handle.
 
 ## Update policy
 

@@ -473,7 +473,9 @@ then use the focused [Runner identity and registration contract](./docs/architec
 references for the implemented foundation and its explicit integration limits. The
 [Repository Connection Model](./docs/architecture/repository-connection-model.md)
 reference covers how the Control Plane identifies connected repositories and
-references webhook secrets without storing them.
+references webhook secrets without storing them. The
+[Runner selection](./docs/architecture/runner-selection.md) reference covers how
+the Control Plane chooses a healthy Runner for a queued Job.
 
 Examples:
 
