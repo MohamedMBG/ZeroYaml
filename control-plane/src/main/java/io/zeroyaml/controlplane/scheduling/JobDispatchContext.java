@@ -10,6 +10,11 @@ import io.zeroyaml.controlplane.domain.job.RunnerAssignment;
  * Runner process chosen to execute it. Dispatch code reads the target from here
  * instead of choosing a Runner itself, so the Runner never decides what it runs.
  *
+ * <p>The decision is enforced on the wire: {@code runner} is passed to
+ * {@link io.zeroyaml.controlplane.runner.RunnerClient#dispatchJob}, which names
+ * it in the dispatch, and any other Runner process that receives that dispatch
+ * declines it.</p>
+ *
  * <p>The context records a decision only. The Job stays queued until the
  * selected Runner reports that it started, which is when the Job aggregate
  * records the assignment.</p>

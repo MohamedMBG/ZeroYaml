@@ -631,6 +631,7 @@ Runner is configured with a single Control Plane address:
 | --- | --- | --- |
 | `zeroyaml.registration.port` | `50052` | Port for `RunnerRegistrationService` and `JobExecutionStatusService` |
 | `zeroyaml.registration.heartbeat-timeout` | `15s` | Time without a heartbeat before a Runner is reported `UNAVAILABLE` |
+| `zeroyaml.registration.unavailable-retention` | `10m` | Time an `UNAVAILABLE` Runner stays registered before its entry is evicted and its `runner_id` can be registered by a new instance |
 
 The setting keeps its `zeroyaml.registration` prefix so deployed configuration
 and Runner environment variables stay valid as services are added to the

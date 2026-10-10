@@ -1,7 +1,7 @@
 package io.zeroyaml.controlplane.scheduling;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -34,30 +34,26 @@ class HealthyRunnerSelectorTest {
 	private static final Instant QUEUED_AT = Instant.parse("2026-10-04T10:01:00Z");
 
 	@Test
-	void selectsTheOnlyHealthyRunnerAndAttachesItToTheDispatchContext() {
+	void selectsTheOnlyAvailableRunnerAndAttachesItToTheDispatchContext() {
 		var job = queuedJob();
 		var selector = new HealthyRunnerSelector(registryOf(registered("runner-1", "instance-1")));
 
 		var outcome = selector.select(job);
 
-		assertEquals(RunnerSelectionDecision.SELECTED, outcome.decision());
-		assertTrue(outcome.isSelected());
-		assertEquals(job.id(), outcome.jobId());
-		var context = outcome.selectedDispatch().orElseThrow();
-		assertEquals(job.id(), context.jobId());
-		assertEquals(new RunnerAssignment("runner-1", "instance-1"), context.runner());
+		var selected = assertInstanceOf(RunnerSelectionOutcome.Selected.class, outcome);
+		assertEquals(job.id(), selected.jobId());
+		assertEquals(job.id(), selected.dispatch().jobId());
+		assertEquals(new RunnerAssignment("runner-1", "instance-1"), selected.dispatch().runner());
 	}
 
 	@Test
-	void selectsTheSmallestRunnerIdAmongSeveralHealthyRunners() {
+	void selectsTheSmallestRunnerIdAmongSeveralAvailableRunners() {
 		var selector = new HealthyRunnerSelector(registryOf(
 				registered("runner-c", "instance-c"),
 				registered("runner-a", "instance-a"),
 				registered("runner-b", "instance-b")));
 
-		var outcome = selector.select(queuedJob());
-
-		assertEquals(new RunnerAssignment("runner-a", "instance-a"), outcome.selectedDispatch().orElseThrow().runner());
+		assertEquals(new RunnerAssignment("runner-a", "instance-a"), selectedRunner(selector, queuedJob()));
 	}
 
 	@Test
@@ -73,11 +69,11 @@ class HealthyRunnerSelectorTest {
 			Collections.rotate(runners, 1);
 			var selector = new HealthyRunnerSelector(registryOf(runners.toArray(RegisteredRunner[]::new)));
 
-			assertEquals(expected, selector.select(job).selectedDispatch().orElseThrow().runner());
+			assertEquals(expected, selectedRunner(selector, job));
 		}
 		Collections.reverse(runners);
 		var reversed = new HealthyRunnerSelector(registryOf(runners.toArray(RegisteredRunner[]::new)));
-		assertEquals(expected, reversed.select(job).selectedDispatch().orElseThrow().runner());
+		assertEquals(expected, selectedRunner(reversed, job));
 	}
 
 	@Test
@@ -94,17 +90,15 @@ class HealthyRunnerSelectorTest {
 	}
 
 	@Test
-	void blocksTheJobWhenNoRunnerIsHealthy() {
+	void blocksTheJobWhenNoRunnerIsAvailable() {
 		var job = queuedJob();
 		var selector = new HealthyRunnerSelector(registryOf());
 
 		var outcome = selector.select(job);
 
-		assertEquals(RunnerSelectionDecision.BLOCKED_NO_HEALTHY_RUNNER, outcome.decision());
-		assertFalse(outcome.isSelected());
-		assertEquals(job.id(), outcome.jobId());
-		assertTrue(outcome.selectedDispatch().isEmpty());
-		assertTrue(outcome.message().contains(job.id().toString()));
+		var blocked = assertInstanceOf(RunnerSelectionOutcome.NoAvailableRunner.class, outcome);
+		assertEquals(job.id(), blocked.jobId());
+		assertTrue(blocked.message().contains(job.id().toString()));
 	}
 
 	@Test
@@ -119,16 +113,6 @@ class HealthyRunnerSelectorTest {
 		assertTrue(withRunner.runnerAssignment().isEmpty());
 		assertEquals(JobStatus.QUEUED, withoutRunner.status());
 		assertTrue(withoutRunner.runnerAssignment().isEmpty());
-	}
-
-	@Test
-	void doesNotFilterOnTheRegistrationSnapshotState() {
-		// The snapshot is captured at registration, before the Runner finishes its startup
-		// checks, so STARTING and acceptingWork=false must not make a healthy Runner ineligible.
-		var starting = registered("runner-1", "instance-1", RunnerState.STARTING, false);
-		var selector = new HealthyRunnerSelector(registryOf(starting));
-
-		assertTrue(selector.select(queuedJob()).isSelected());
 	}
 
 	@Test
@@ -150,20 +134,17 @@ class HealthyRunnerSelectorTest {
 	}
 
 	@Test
-	void rejectsABlockedOutcomeThatCarriesADispatchContext() {
-		var job = queuedJob();
-		var context = new JobDispatchContext(job.id(), new RunnerAssignment("runner-1", "instance-1"));
-
-		assertThrows(IllegalArgumentException.class, () -> new RunnerSelectionOutcome(
-				job.id(), RunnerSelectionDecision.BLOCKED_NO_HEALTHY_RUNNER, context, "blocked"));
+	void rejectsASelectedOutcomeWithoutADispatchContext() {
+		assertThrows(NullPointerException.class, () -> new RunnerSelectionOutcome.Selected(null, "selected"));
 	}
 
 	@Test
-	void rejectsASelectedOutcomeForADifferentJob() {
-		var context = new JobDispatchContext(queuedJob().id(), new RunnerAssignment("runner-1", "instance-1"));
+	void rejectsABlockedOutcomeWithoutAJob() {
+		assertThrows(NullPointerException.class, () -> new RunnerSelectionOutcome.NoAvailableRunner(null, "blocked"));
+	}
 
-		assertThrows(IllegalArgumentException.class, () -> new RunnerSelectionOutcome(
-				queuedJob().id(), RunnerSelectionDecision.SELECTED, context, "selected"));
+	private static RunnerAssignment selectedRunner(RunnerSelector selector, Job job) {
+		return assertInstanceOf(RunnerSelectionOutcome.Selected.class, selector.select(job)).dispatch().runner();
 	}
 
 	private static Job queuedJob() {
@@ -181,31 +162,27 @@ class HealthyRunnerSelectorTest {
 	}
 
 	private static RegisteredRunner registered(String runnerId, String instanceId) {
-		return registered(runnerId, instanceId, RunnerState.READY, true);
-	}
-
-	private static RegisteredRunner registered(
-			String runnerId, String instanceId, RunnerState state, boolean acceptingWork) {
 		var info = new RunnerInfo(
 				runnerId,
 				instanceId,
 				"0.1.0",
 				"runner.v1",
-				state,
-				acceptingWork,
+				RunnerState.READY,
+				true,
 				new RunnerCapabilities("linux", "amd64", true, List.of(), Map.of()));
 		return new RegisteredRunner("registration-" + runnerId, info, CREATED_AT, CREATED_AT);
 	}
 
-	private static RunnerRegistry registryOf(RegisteredRunner... healthy) {
-		return new FixedHealthyRegistry(List.of(healthy));
+	private static RunnerRegistry registryOf(RegisteredRunner... available) {
+		return new FixedAvailableRegistry(List.of(available));
 	}
 
 	/**
-	 * Registry double that reports a fixed healthy set, so selection is verified against exact
-	 * registry state and listing order. Liveness derivation itself is covered by the registry's own tests.
+	 * Registry double that reports a fixed available set, so the ordering rule is verified against
+	 * exact registry state and listing order. Which Runners count as available is the registry's
+	 * policy; it is covered with the real registry in {@code RunnerSelectionIntegrationTest}.
 	 */
-	private record FixedHealthyRegistry(List<RegisteredRunner> healthy) implements RunnerRegistry {
+	private record FixedAvailableRegistry(List<RegisteredRunner> available) implements RunnerRegistry {
 
 		@Override
 		public RegistrationOutcome register(RunnerInfo runner) {
@@ -218,13 +195,18 @@ class HealthyRunnerSelectorTest {
 		}
 
 		@Override
-		public RunnerLiveness livenessOf(String runnerId) {
-			throw new UnsupportedOperationException("selection must use healthyRunners()");
+		public HeartbeatOutcome heartbeat(String runnerId, String instanceId, RunnerState state, boolean acceptingWork) {
+			throw new UnsupportedOperationException("selection must not record heartbeats");
 		}
 
 		@Override
-		public List<RegisteredRunner> healthyRunners() {
-			return healthy;
+		public RunnerLiveness livenessOf(String runnerId) {
+			throw new UnsupportedOperationException("selection must use availableRunners()");
+		}
+
+		@Override
+		public List<RegisteredRunner> availableRunners() {
+			return available;
 		}
 	}
 }

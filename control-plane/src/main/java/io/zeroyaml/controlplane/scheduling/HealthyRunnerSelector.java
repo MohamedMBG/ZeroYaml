@@ -12,16 +12,15 @@ import io.zeroyaml.controlplane.registration.RegisteredRunner;
 import io.zeroyaml.controlplane.registration.RunnerRegistry;
 
 /**
- * First scheduling strategy: pick the healthy registered Runner with the
+ * First scheduling strategy: pick the available registered Runner with the
  * lexicographically smallest {@code runnerId}.
  *
- * <p>A Runner is eligible exactly when the registry reports it
- * {@link io.zeroyaml.controlplane.registration.RunnerLiveness#HEALTHY}. The
- * registration snapshot's {@code acceptingWork} flag is deliberately not
- * consulted: it is captured once at registration, before the Runner finishes
- * its own startup checks, and heartbeats never refresh it, so it would not
- * reflect whether the Runner can take work now. A Runner that is healthy but
- * declines a dispatch is handled by the dispatch rejection path.
+ * <p>Eligibility is the registry's decision. A Runner is eligible exactly when
+ * {@link RunnerRegistry#availableRunners()} lists it: its heartbeat is recent,
+ * and that heartbeat reported the Runner ready and accepting work. A Runner
+ * that is alive but cannot execute, for example one without a Docker daemon
+ * or one that is draining, is therefore never selected and cannot keep Jobs
+ * away from a Runner that can run them.
  *
  * <p>{@code runnerId} is the registry key and therefore unique, so the
  * ordering is total and the same registry state always yields the same
@@ -50,17 +49,17 @@ class HealthyRunnerSelector implements RunnerSelector {
 					"Job " + job.id() + " must be QUEUED to select a Runner but is " + job.status());
 		}
 
-		return registry.healthyRunners().stream()
+		return registry.availableRunners().stream()
 				.min(BY_RUNNER_ID)
 				.map(registered -> toSelectedOutcome(job, registered))
-				.orElseGet(() -> RunnerSelectionOutcome.blockedNoHealthyRunner(
-						job.id(), "No healthy Runner is registered; Job " + job.id() + " stays queued"));
+				.orElseGet(() -> new RunnerSelectionOutcome.NoAvailableRunner(
+						job.id(), "No Runner is healthy and accepting work; Job " + job.id() + " stays queued"));
 	}
 
 	private static RunnerSelectionOutcome toSelectedOutcome(Job job, RegisteredRunner registered) {
 		var runner = registered.runner();
 		var context = new JobDispatchContext(job.id(), new RunnerAssignment(runner.runnerId(), runner.instanceId()));
-		return RunnerSelectionOutcome.selected(
+		return new RunnerSelectionOutcome.Selected(
 				context, "Runner " + runner.runnerId() + " selected for Job " + job.id());
 	}
 }

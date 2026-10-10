@@ -15,7 +15,8 @@ public interface RunnerSelector {
 	 * eligible. The Job is not modified and nothing is dispatched.
 	 *
 	 * @param job Job waiting in {@link io.zeroyaml.controlplane.domain.job.JobStatus#QUEUED}
-	 * @return a selected outcome naming the Runner, or a blocked outcome when none is eligible
+	 * @return {@link RunnerSelectionOutcome.Selected} naming the Runner, or
+	 *         {@link RunnerSelectionOutcome.NoAvailableRunner} when none is eligible
 	 * @throws IllegalStateException if {@code job} is not queued
 	 */
 	RunnerSelectionOutcome select(Job job);
