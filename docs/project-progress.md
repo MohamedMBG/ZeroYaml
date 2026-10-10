@@ -94,7 +94,7 @@ The Runner Docker execution sandbox for issue #25 is merged into `main`. A Runne
 - One webhook secret is configured for the whole Control Plane. Per-repository secrets and rotation without downtime are not supported; they belong with repository metadata persistence (#19) and Phase 6 security work.
 - A verified delivery can still be replayed, because deliveries are not deduplicated yet. Recording delivery identifiers under a unique constraint is tracked as issue #203.
 - `docs/local-development-workflow.md` documents two separately verified halves rather than one continuous push-to-execution run, because #30 and #31 are open. Its expected-state and automated-coverage sections therefore record what is wired and what is not, and they must be re-verified against the end-to-end test from #31 once it exists; acceptance criteria of #32 that depend on that test remain unmet until then.
-- The documented local workflow is verified by hand. No automated check asserts that the runbook's commands, log lines, or response codes still match the code, so a behavior change can leave it stale until the next manual run.
+- The documented local workflow is derived from reading the code and has not been executed end to end. No automated check asserts that the runbook's commands, log lines, or response codes still match the code, so a behavior change can leave it stale until the next manual run.
 
 ## Update policy
 

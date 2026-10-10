@@ -114,9 +114,24 @@ restart of the stack.
 Both required secrets come from the environment; read
 [Section 5](#5-configuration-and-secret-handling) before running this.
 
+The webhook secret is generated once into a file in the home directory, outside
+the checkout, and loaded from there. The signed delivery in
+[Section 7.1](#71-signed-local-delivery) is sent from a different shell and
+needs the identical value; loading it from the file in both shells shares it
+without ever printing it.
+
 ```powershell
+$secretFile = Join-Path $HOME '.zeroyaml-webhook-secret'
+if (-not (Test-Path $secretFile)) {
+  $bytes = New-Object byte[] 32
+  $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+  $rng.GetBytes($bytes)
+  $rng.Dispose()
+  [IO.File]::WriteAllText($secretFile, (($bytes | ForEach-Object { $_.ToString('x2') }) -join ''))
+}
+
 $env:ZEROYAML_DATABASE_PASSWORD = 'zeroyaml'
-$env:ZEROYAML_GITHUB_WEBHOOK_SECRET = -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) })
+$env:ZEROYAML_GITHUB_WEBHOOK_SECRET = [IO.File]::ReadAllText($secretFile)
 
 Push-Location control-plane
 .\mvnw.cmd --batch-mode spring-boot:run
@@ -124,11 +139,18 @@ Pop-Location
 ```
 
 ```bash
+secret_file="$HOME/.zeroyaml-webhook-secret"
+[ -f "$secret_file" ] || (umask 077; openssl rand -hex 32 | tr -d '\n' > "$secret_file")
+
 export ZEROYAML_DATABASE_PASSWORD='zeroyaml'
-export ZEROYAML_GITHUB_WEBHOOK_SECRET="$(openssl rand -hex 32)"
+export ZEROYAML_GITHUB_WEBHOOK_SECRET="$(cat "$secret_file")"
 
 cd control-plane && ./mvnw --batch-mode spring-boot:run
 ```
+
+`RandomNumberGenerator` is a cryptographically secure source on Windows
+PowerShell 5.1 and PowerShell 7 alike; `Get-Random` is not, so it is not used
+for a secret.
 
 Expected during startup:
 
@@ -268,11 +290,23 @@ downstream processing. The full validation order and response contract are in
 This reproduces exactly how GitHub signs a delivery, needs no public tunnel,
 and is the form a reviewer can run.
 
+The body is written to a file and the digest is computed over that file's
+bytes, then the same file is sent with `--data-binary`. Passing the JSON as a
+command-line argument is avoided on purpose: Windows PowerShell 5.1 strips the
+embedded double quotes from arguments handed to a native executable, so the
+bytes sent would no longer match the bytes signed and the Control Plane would
+answer `401`. The secret is loaded from the file created in
+[Section 4.2](#42-control-plane), because this shell is not the one that
+started the Control Plane.
+
 ```powershell
-$payload = '{"ref":"refs/heads/main","after":"0f4b1a1e2c3d4e5f60718293a4b5c6d7e8f90a1b"}'
-$hmac = [System.Security.Cryptography.HMACSHA256]::new(
-  [Text.Encoding]::UTF8.GetBytes($env:ZEROYAML_GITHUB_WEBHOOK_SECRET))
-$digest = ($hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($payload)) |
+$secretFile = Join-Path $HOME '.zeroyaml-webhook-secret'
+$secret = [IO.File]::ReadAllText($secretFile)
+$payloadFile = Join-Path ([IO.Path]::GetTempPath()) 'zeroyaml-push.json'
+[IO.File]::WriteAllText($payloadFile, '{"ref":"refs/heads/main","after":"0f4b1a1e2c3d4e5f60718293a4b5c6d7e8f90a1b"}')
+
+$hmac = New-Object System.Security.Cryptography.HMACSHA256 -ArgumentList (,[Text.Encoding]::UTF8.GetBytes($secret))
+$digest = ($hmac.ComputeHash([IO.File]::ReadAllBytes($payloadFile)) |
   ForEach-Object { $_.ToString('x2') }) -join ''
 
 curl.exe -i -X POST http://localhost:8080/webhooks/github `
@@ -280,21 +314,22 @@ curl.exe -i -X POST http://localhost:8080/webhooks/github `
   -H "X-GitHub-Event: push" `
   -H "X-GitHub-Delivery: 72d3162e-cc78-11e3-81ab-4c9367dc0958" `
   -H "X-Hub-Signature-256: sha256=$digest" `
-  --data $payload
+  --data-binary "@$payloadFile"
 ```
 
 ```bash
-payload='{"ref":"refs/heads/main","after":"0f4b1a1e2c3d4e5f60718293a4b5c6d7e8f90a1b"}'
-digest="$(printf '%s' "$payload" |
-  openssl dgst -sha256 -hmac "$ZEROYAML_GITHUB_WEBHOOK_SECRET" -hex |
-  awk '{print $NF}')"
+secret="$(cat "$HOME/.zeroyaml-webhook-secret")"
+payload_file="$(mktemp)"
+printf '%s' '{"ref":"refs/heads/main","after":"0f4b1a1e2c3d4e5f60718293a4b5c6d7e8f90a1b"}' > "$payload_file"
+
+digest="$(openssl dgst -sha256 -hmac "$secret" -hex "$payload_file" | awk '{print $NF}')"
 
 curl -i -X POST http://localhost:8080/webhooks/github \
   -H "Content-Type: application/json" \
   -H "X-GitHub-Event: push" \
   -H "X-GitHub-Delivery: 72d3162e-cc78-11e3-81ab-4c9367dc0958" \
   -H "X-Hub-Signature-256: sha256=$digest" \
-  --data "$payload"
+  --data-binary "@$payload_file"
 ```
 
 Expected response:
@@ -308,11 +343,12 @@ HTTP/1.1 202 Accepted
 Expected Control Plane log lines, in this order:
 
 ```text
-INFO  i.z.c.g.w.GitHubWebhookController              : Accepted GitHub delivery 72d3162e-... for event push (<n> payload bytes)
 INFO  i.z.c.g.w.LoggingGitHubWebhookDeliveryHandler  : GitHub delivery 72d3162e-... for event push recorded without further processing (<n> payload bytes)
+INFO  i.z.c.g.w.GitHubWebhookController              : Accepted GitHub delivery 72d3162e-... for event push (<n> payload bytes)
 ```
 
-The second line is the current end of the chain. The delivery handler writes an
+The controller logs `Accepted` only after the delivery handler returns, so the
+handler line comes first and is the current end of the chain. The delivery handler writes an
 audit record and starts no pipeline work, which is the expected behavior until
 [#20](https://github.com/MohamedMBG/ZeroYaml/issues/20) normalizes accepted
 deliveries. Neither line contains the payload or the signature.
@@ -367,6 +403,20 @@ $revision = git rev-parse HEAD
 Pop-Location
 ```
 
+```bash
+mkdir -p "$HOME/zeroyaml-sources/demo"
+cd "$HOME/zeroyaml-sources/demo"
+git init --initial-branch=main
+echo 'hello' > greeting.txt
+git add greeting.txt
+git commit -m "add greeting"
+revision="$(git rev-parse HEAD)"
+cd -
+```
+
+Run the bash dispatch below in the same shell, so `$revision` is still set; an
+empty revision fails request validation.
+
 Dispatch it. The Runner registers no gRPC reflection service, so `grpcurl` is
 pointed at the contract in `proto/`:
 
@@ -411,12 +461,13 @@ a dispatch must not block on job duration:
 ```
 
 Expected Runner records: the dispatch acknowledgment, a running status report,
-and one terminal report. They never contain the repository location, the
+the execution result, and one terminal report. They never contain the repository location, the
 revision, the command arguments, or the failure message.
 
 ```text
 level=INFO msg="run job acknowledged" job_id=<uuid> protocol_version=runner.v1 runner_id=local-runner instance_id=<uuid> acceptance=JOB_ACCEPTED
 level=WARN msg="job status report acknowledged" job_id=<uuid> reported_state=running runner_id=local-runner instance_id=<uuid> decision=unknown_job job_state=unspecified
+level=INFO msg="job execution finished" job_id=<uuid> execution_id=<id> outcome=succeeded duration=<d> exit_code=0
 level=WARN msg="job status report acknowledged" job_id=<uuid> reported_state=succeeded runner_id=local-runner instance_id=<uuid> decision=unknown_job job_state=unspecified
 ```
 
@@ -538,9 +589,9 @@ output is visible only in the Job container's own output.
 | --- | --- | --- |
 | `docker daemon unavailable - runner will not accept jobs` | The daemon is not running, or did not answer within 5 s | Start Docker Desktop, confirm `docker version`, then restart the Runner |
 | Terminal report with reason `execution_error` | The workspace or the executor could not be prepared, for example a missing image | Pre-pull `ZEROYAML_RUNNER_JOB_IMAGE` and `ZEROYAML_RUNNER_CHECKOUT_IMAGE` |
-| Dispatch rejected as an unsupported job, naming the scheme | The repository scheme is not `https`, `http`, or `file` | Use a supported scheme; other git transports can run arbitrary commands and are refused |
-| `file repository locations are disabled on this runner` | `ZEROYAML_RUNNER_LOCAL_SOURCE_ROOT` is unset | Set it to an existing absolute directory and restart the Runner |
-| `file repository location is outside the configured local source root` | The path escapes the root, including through a symlink | Move the source below the root; containment is checked after symlinks are resolved |
+| Dispatch fails with `FAILED_PRECONDITION`, naming the scheme | The repository scheme is not `https`, `http`, or `file` | Use a supported scheme; other git transports can run arbitrary commands and are refused |
+| Dispatch fails with `FAILED_PRECONDITION`: `file repository locations are disabled on this runner` | `ZEROYAML_RUNNER_LOCAL_SOURCE_ROOT` is unset | Set it to an existing absolute directory and restart the Runner |
+| Dispatch fails with `FAILED_PRECONDITION`: `file repository location is outside the configured local source root` | The path escapes the root, including through a symlink | Move the source below the root; containment is checked after symlinks are resolved |
 | Terminal report with reason `timeout` | The execution exceeded `ZEROYAML_RUNNER_JOB_TIMEOUT` | Raise the timeout or shorten the command; the checkout counts toward the same budget |
 | Containers or volumes left behind after a crash | The Runner exited before cleanup finished | Remove them by label: `docker rm -f $(docker ps -aq --filter label=io.zeroyaml.managed=true)`, then `docker volume prune --filter label=io.zeroyaml.managed=true` |
 | `go test ./...` fails in `internal/sandbox` | Container tests were opted into without a usable daemon | Unset `ZEROYAML_RUNNER_DOCKER_TESTS`, or start Docker |
@@ -596,7 +647,7 @@ What the suites already cover, per step of this document:
 | A push through to an execution | Not covered — [#31](https://github.com/MohamedMBG/ZeroYaml/issues/31) |
 
 No automated test spans a push to an execution yet, so the two halves in
-Sections 7 and 8 are verified by hand. When
+Sections 7 and 8 rest on a reading of the code and have not been run end to end. When
 [#31](https://github.com/MohamedMBG/ZeroYaml/issues/31) lands, this document
 must be checked against that test and corrected wherever the two disagree; the
 test is authoritative.
