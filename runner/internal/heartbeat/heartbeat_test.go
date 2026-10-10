@@ -30,6 +30,9 @@ func TestRunSendsOneHeartbeatPerTick(t *testing.T) {
 		close(done)
 	}()
 
+	// The heartbeat sent at startup, before any tick.
+	waitForCall(t, calls)
+
 	ticker.tick()
 	waitForCall(t, calls)
 
@@ -67,7 +70,7 @@ func TestRunContinuesAfterASendError(t *testing.T) {
 		waitForDone(t, done)
 	}()
 
-	ticker.tick()
+	// The startup heartbeat fails; the first tick must still send the next one.
 	waitForCall(t, calls)
 
 	ticker.tick()
@@ -93,6 +96,7 @@ func TestRunContinuesAfterAnUnknownRunnerDecision(t *testing.T) {
 		close(done)
 	}()
 
+	waitForCall(t, calls)
 	ticker.tick()
 	waitForCall(t, calls)
 	ticker.tick()
@@ -102,7 +106,10 @@ func TestRunContinuesAfterAnUnknownRunnerDecision(t *testing.T) {
 	waitForDone(t, done)
 }
 
-func TestRunSendsNoHeartbeatBeforeTheFirstTick(t *testing.T) {
+// TestRunSendsAHeartbeatBeforeTheFirstTick shows that the Runner reports its
+// availability right after registration instead of one interval later, since
+// the Control Plane offers it no work until that first report arrives.
+func TestRunSendsAHeartbeatBeforeTheFirstTick(t *testing.T) {
 	ticker := newFakeTicker()
 	calls := make(chan struct{}, 8)
 	send := func(ctx context.Context, address string, identity runneridentity.Identity) (heartbeatclient.Result, error) {
@@ -117,11 +124,7 @@ func TestRunSendsNoHeartbeatBeforeTheFirstTick(t *testing.T) {
 		close(done)
 	}()
 
-	select {
-	case <-calls:
-		t.Fatal("expected no heartbeat before the first tick")
-	case <-time.After(50 * time.Millisecond):
-	}
+	waitForCall(t, calls)
 
 	cancel()
 	waitForDone(t, done)
