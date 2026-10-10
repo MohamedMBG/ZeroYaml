@@ -941,7 +941,8 @@ To generate the Control Plane gRPC client and verify its Ping integration path, 
 
 The focused Ping test uses an in-process Runner and does not require a separately running Runner process.
 
-Then bring the whole platform up and verify it end to end by following the
+Then bring the platform up and verify the available webhook and Runner
+execution paths separately by following the
 [Local End-to-End Development Workflow](./docs/local-development-workflow.md).
 It also records which steps of the push-to-execution chain are wired today and
 which remain open Phase 2 work.

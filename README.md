@@ -14,7 +14,8 @@ If this is your first time working on ZeroYAML, read:
 It explains the repository structure, architecture, prerequisites,
 development workflow, and the purpose of the main files and folders.
 
-To bring the platform up locally and verify it end to end, follow:
+To bring the platform up locally and verify the available webhook and Runner
+execution paths separately, follow:
 
 [Local End-to-End Development Workflow](./docs/local-development-workflow.md)
 

@@ -178,6 +178,7 @@ In a second shell. `ZEROYAML_RUNNER_LOCAL_SOURCE_ROOT` is only needed for the
 `file://` Job source used in [Section 8](#8-observe-one-job-execution).
 
 ```powershell
+New-Item -ItemType Directory -Force -Path 'C:\zeroyaml-sources' | Out-Null
 $env:ZEROYAML_RUNNER_LOCAL_SOURCE_ROOT = 'C:\zeroyaml-sources'
 
 Push-Location runner
@@ -186,6 +187,7 @@ Pop-Location
 ```
 
 ```bash
+mkdir -p "$HOME/zeroyaml-sources"
 export ZEROYAML_RUNNER_LOCAL_SOURCE_ROOT="$HOME/zeroyaml-sources"
 
 cd runner && go run ./cmd/runner
@@ -461,8 +463,12 @@ a dispatch must not block on job duration:
 ```
 
 Expected Runner records: the dispatch acknowledgment, a running status report,
-the execution result, and one terminal report. They never contain the repository location, the
-revision, the command arguments, or the failure message.
+the execution result, and one terminal report. The dispatch acknowledgment and
+status-report acknowledgments omit the repository location, revision, command
+arguments, and failure message. The execution-result record includes a
+`message` field when execution fails. The dispatch acknowledgment and running
+status report can appear in either order because execution starts in a separate
+goroutine before the dispatch acknowledgment is logged.
 
 ```text
 level=INFO msg="run job acknowledged" job_id=<uuid> protocol_version=runner.v1 runner_id=local-runner instance_id=<uuid> acceptance=JOB_ACCEPTED
@@ -504,7 +510,9 @@ known limits are documented in
 
 For the failure path, dispatch `sh -c 'exit 3'`. The terminal report then
 carries state `failed` with reason `non_zero_exit` and exit code `3`, and the
-Runner still removes every resource.
+Runner still removes every resource. The Runner's `job execution finished`
+WARN record includes the execution failure `message` alongside the outcome and
+exit code; status-report acknowledgment records omit that message.
 
 ## 9. Expected states
 
