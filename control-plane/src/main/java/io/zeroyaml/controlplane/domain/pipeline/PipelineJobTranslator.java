@@ -26,7 +26,10 @@ import io.zeroyaml.controlplane.domain.job.JobId;
  * inference retry for the same revision yields the same Job identities, which
  * is what lets the application layer recognize Jobs it already recorded. Step
  * names are unique within a pipeline, so the identities within one pipeline are
- * distinct.</p>
+ * distinct. The identity does not cover the plan itself: two different plans
+ * with the same pipeline identity share Job identities for equally named steps,
+ * so the application layer must bind a pipeline identity to one plan before
+ * recording its Jobs.</p>
  *
  * <p>The translation is a pure function of its arguments: it records nothing,
  * selects no Runner, and performs no I/O.</p>

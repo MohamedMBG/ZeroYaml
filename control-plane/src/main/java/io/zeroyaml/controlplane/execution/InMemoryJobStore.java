@@ -37,10 +37,11 @@ class InMemoryJobStore implements JobStore {
 	}
 
 	@Override
-	public boolean addIfAbsent(Job job) {
+	public Job recordIfAbsent(Job job) {
 		Objects.requireNonNull(job, "job must not be null");
 
-		return jobsById.putIfAbsent(job.id(), job) == null;
+		var existing = jobsById.putIfAbsent(job.id(), job);
+		return existing == null ? job : existing;
 	}
 
 	@Override

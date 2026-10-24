@@ -30,10 +30,10 @@ public interface JobStore {
 	 * the same identity record it exactly once.
 	 *
 	 * @param job Job to record
-	 * @return {@code true} when {@code job} was recorded, {@code false} when its identity was
-	 *         already recorded; the recorded Job is then left unchanged
+	 * @return the recorded Job: {@code job} itself when it was recorded by this call, otherwise
+	 *         the Job already recorded under its identity, which is left unchanged
 	 */
-	boolean addIfAbsent(Job job);
+	Job recordIfAbsent(Job job);
 
 	/**
 	 * Looks up a Job for reading.

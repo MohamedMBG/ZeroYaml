@@ -109,6 +109,15 @@ class PipelineJobTranslatorTest {
 	}
 
 	@Test
+	void identityDoesNotCoverThePlanSoChangedStepsShareJobIdentities() {
+		// Documents why the application layer binds a pipeline identity to one plan before recording Jobs.
+		var original = new Pipeline(PIPELINE_ID, SOURCE, List.of(step("build", "make")));
+		var changed = new Pipeline(PIPELINE_ID, SOURCE, List.of(step("build", "make", "all")));
+
+		assertEquals(jobIds(translator.translate(original, CREATED_AT)), jobIds(translator.translate(changed, CREATED_AT)));
+	}
+
+	@Test
 	void rejectsMissingPipelineOrCreationTime() {
 		var pipeline = new Pipeline(PIPELINE_ID, SOURCE, List.of(step("build", "make")));
 

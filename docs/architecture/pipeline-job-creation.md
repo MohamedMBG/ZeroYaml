@@ -36,12 +36,24 @@ pipelines.
   constructed, so every step that reaches translation is executable.
 - **Identity** is deterministic. Step names are unique within a pipeline, so the
   identities in one pipeline are distinct. The same step name in another
-  pipeline gives another identity.
+  pipeline gives another identity. The identity does not cover the plan:
+  two different plans under one pipeline identity share the identity of an
+  equally named step, which is why recording binds a pipeline identity to one
+  plan first.
 
 ## Recording and idempotency (application)
 
 `io.zeroyaml.controlplane.execution.PipelineJobCreationService.createJobs`
-translates the pipeline and records each Job through `JobStore.addIfAbsent`.
+records a pipeline in two steps:
+
+1. **Bind the plan.** `PipelineStore.recordIfAbsent` atomically binds the
+   pipeline identity to this exact plan (source and ordered steps), or returns
+   the plan already bound to it. A different plan is refused with
+   `PipelineJobConflictException` here, before any Job is recorded.
+2. **Record the Jobs.** Each translated Job is recorded through
+   `JobStore.recordIfAbsent`, which atomically records it or returns the Job
+   already recorded under its identity. That is one store operation per step.
+
 It returns a `PipelineJobCreation` with every step's recorded Job, in order,
 and how many of them this call created.
 
@@ -52,16 +64,22 @@ from the pipeline identity and the step name. Therefore:
 | Input | Result |
 | --- | --- |
 | First pipeline for a revision | Every Job recorded; `createdCount` equals the step count |
-| Repeated webhook delivery or inference retry for the same revision | Nothing recorded; the existing Jobs are returned as recorded, whatever state they reached |
-| Concurrent calls for the same pipeline | Each Job is recorded exactly once, because the check and insert are one atomic store operation |
-| Some Jobs already recorded (an earlier call failed part-way) | Only the missing Jobs are recorded |
-| A step whose derived identity is recorded with a different repository or command | `PipelineJobConflictException`; nothing is recorded |
+| Repeated webhook delivery or inference retry with an equal plan | Nothing recorded; the existing Jobs are returned as recorded, whatever state they reached |
+| Concurrent calls with an equal plan | Each Job is recorded exactly once |
+| Equal plan after an earlier call failed part-way | Only the missing Jobs are recorded |
+| Same pipeline identity with another repository, a changed command, or added or removed steps | `PipelineJobConflictException`; nothing is recorded |
+| Different plans for one identity racing each other | The first to bind wins; every call with another plan gets `PipelineJobConflictException` and records nothing |
 
-The last case means one pipeline identity now describes another plan, for
-example after an inference rule changed for an already-processed revision.
-Reusing the recorded Job would run a plan nobody decided on, and replacing it
-would rewrite history, so the call is refused. Every step is checked before any
-Job is recorded, so a conflicting pipeline does not leave a partial set of Jobs.
+A changed plan for an already-processed revision typically follows a change
+of inference rules. Reusing the recorded Jobs would run a plan nobody decided
+on, mixing both plans would leave Jobs that belong to neither (a dropped step's
+Job would stay recorded but appear in no result), and replacing them would
+rewrite history, so the call is refused.
+
+A Job with a derived identity but another definition can only be recorded
+outside this service once the plan is bound. The service treats that as a
+broken invariant and fails with `IllegalStateException` without changing the
+recorded Job.
 
 Each call writes one log line with the pipeline identity, the revision, and the
 created and total counts. The repository location is not logged, because it
@@ -69,12 +87,19 @@ can embed credentials.
 
 ## Limits
 
-- Job state, including the recorded Jobs, is held by the in-memory `JobStore`
-  and lost on restart until durable persistence lands (#28). Idempotency
-  therefore holds per Control Plane process.
+- Pipelines and Jobs are held by the in-memory `PipelineStore` and `JobStore`
+  and lost on restart until durable persistence lands (#28). Idempotency and
+  plan binding therefore hold per Control Plane process.
+- Memory grows with every distinct pipeline: one plan entry and at most 50 Jobs
+  per pipeline, never evicted before restart. Evicting would let a changed plan
+  reuse the identities of Jobs that still exist, so no eviction is applied; the
+  bound is the process lifetime until #28 replaces both stores.
+- A plan bound to a pipeline identity cannot be replaced, even deliberately.
+  Re-running a revision with new inference rules needs an explicit supersede or
+  re-run decision, which belongs to the Phase 3 pipeline lifecycle.
 - The link from a Job back to its step is returned to the caller and can be
-  recomputed from the identities, but it is not stored. Storing it is part of
-  persistence (#28).
+  recomputed from the bound plan and the identities, but it is not stored as
+  such. Storing it is part of persistence (#28).
 - Nothing calls the service from the webhook path yet. Obtaining the repository
   file listing, calling inference, and handing the Jobs to selection and
   dispatch are #30.
