@@ -25,6 +25,17 @@ public interface JobStore {
 	void add(Job job);
 
 	/**
+	 * Records a Job unless a Job with the same identity is already recorded. The
+	 * check and the insert are one atomic step, so concurrent callers recording
+	 * the same identity record it exactly once.
+	 *
+	 * @param job Job to record
+	 * @return {@code true} when {@code job} was recorded, {@code false} when its identity was
+	 *         already recorded; the recorded Job is then left unchanged
+	 */
+	boolean addIfAbsent(Job job);
+
+	/**
 	 * Looks up a Job for reading.
 	 *
 	 * @param jobId identity to look up
