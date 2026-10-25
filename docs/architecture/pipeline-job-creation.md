@@ -94,13 +94,13 @@ can embed credentials.
 - Pipelines and Jobs are held by the in-memory `PipelineStore` and `JobStore`
   and lost on restart until durable persistence lands (#28). Idempotency and
   plan binding therefore hold per Control Plane process.
-- Memory grows with every distinct pipeline: one plan entry and at most 50 Jobs
-  per pipeline, never evicted before restart. Evicting would let a changed plan
-  reuse the identities of Jobs that still exist, so no eviction is applied.
-  Instead the in-memory `PipelineStore` holds at most 10,000 pipelines and
-  fails with `IllegalStateException` for a new one beyond that, which bounds the
-  heap until #28 replaces both stores. Mapping that failure to a response
-  belongs to #30.
+- The in-memory `PipelineStore` keeps the 10,000 most recently bound plans and
+  evicts the oldest beyond that, so a burst of pushes cannot stop Job creation.
+  An evicted pipeline can be bound again. Its recorded Jobs are still checked
+  against the plan, so a changed plan cannot reuse a Job identity with another
+  definition; only a step dropped from the changed plan can stay recorded
+  outside the returned list. Jobs are not evicted, at most 50 per pipeline,
+  until #28 replaces both stores.
 - A pipeline with an already-recorded Job whose definition differs is detected
   before any Job of the call is recorded, so the call fails without a partial
   set. Both this and a refused plan are logged with the pipeline identity and

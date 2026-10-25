@@ -217,14 +217,19 @@ class PipelineJobCreationServiceTest {
 	}
 
 	@Test
-	void refusesNewPipelinesOnceTheStoreIsFull() {
-		for (var i = 0; i < InMemoryPipelineStore.MAX_PIPELINES; i++) {
+	void keepsCreatingJobsOnceTheStoreIsFullByEvictingTheOldestPipeline() {
+		var oldest = pipeline(step("build", "make"));
+		pipelines.recordIfAbsent(oldest);
+		for (var i = 1; i < InMemoryPipelineStore.MAX_PIPELINES; i++) {
 			pipelines.recordIfAbsent(new Pipeline(new PipelineId(UUID.randomUUID()), SOURCE, List.of(step("build", "make"))));
 		}
-		var recorded = pipeline(step("build", "make"));
+		var fresh = new Pipeline(new PipelineId(UUID.randomUUID()), SOURCE, List.of(step("test", "make", "test")));
 
-		assertThrows(IllegalStateException.class, () -> service.createJobs(recorded));
-		assertTrue(jobs.find(jobIdOf(recorded, "build")).isEmpty());
+		var creation = service.createJobs(fresh);
+
+		assertEquals(1, creation.createdCount());
+		var rebound = new Pipeline(oldest.id(), SOURCE, List.of(step("build", "make", "other")));
+		assertSame(rebound, pipelines.recordIfAbsent(rebound));
 	}
 
 	@Test
