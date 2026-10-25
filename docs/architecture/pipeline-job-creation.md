@@ -94,16 +94,18 @@ can embed credentials.
 - Pipelines and Jobs are held by the in-memory `PipelineStore` and `JobStore`
   and lost on restart until durable persistence lands (#28). Idempotency and
   plan binding therefore hold per Control Plane process.
-- The in-memory `PipelineStore` keeps the 10,000 most recently bound plans and
-  evicts the oldest beyond that, so a burst of pushes cannot stop Job creation.
-  An evicted pipeline can be bound again. Its recorded Jobs are still checked
-  against the plan, so a changed plan cannot reuse a Job identity with another
-  definition; only a step dropped from the changed plan can stay recorded
-  outside the returned list. Jobs are not evicted, at most 50 per pipeline,
-  until #28 replaces both stores.
+- Memory grows with every distinct pipeline: one plan entry and at most 50 Jobs
+  per pipeline, never evicted before restart. Evicting would let a changed plan
+  reuse the identities of Jobs that still exist, so no eviction is applied.
+  Instead the in-memory `PipelineStore` holds at most 10,000 pipelines and
+  fails with `PipelineStoreFullException` for a new one beyond that, which bounds the
+  heap until #28 replaces both stores. The store stays full until restart, so a
+  deployment that nears the limit must be restarted or moved to #28 first.
+  Mapping that failure to a response (service unavailable, not conflict) belongs
+  to #30.
 - A pipeline with an already-recorded Job whose definition differs is detected
-  before any Job of the call is recorded, so the call fails without a partial
-  set. Both this and a refused plan are logged with the pipeline identity and
+  before any Job of the call is recorded, so a single caller fails without a partial
+  set; a foreign Job recorded concurrently between the check and the recording can still leave one. Both this and a refused plan are logged with the pipeline identity and
   revision.
 - A plan bound to a pipeline identity cannot be replaced, even deliberately.
   Re-running a revision with new inference rules needs an explicit supersede or
@@ -111,7 +113,7 @@ can embed credentials.
 - `PipelineJobConflictException` is unchecked. Once the webhook path calls this
   service, a redelivered revision whose plan changed under new inference rules
   would surface as a server error unless the caller maps it. Defining that
-  mapping, together with the full-store `IllegalStateException`, belongs to #30.
+  mapping, together with `PipelineStoreFullException`, belongs to #30.
 - The link from a Job back to its step is returned to the caller and can be
   recomputed from the bound plan and the identities, but it is not stored as
   such. Storing it is part of persistence (#28).

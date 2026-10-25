@@ -20,7 +20,7 @@ public interface PipelineStore {
 	 * recording plans under the same identity agree on a single winner.
 	 *
 	 * @param pipeline pipeline to record
-	 * @throws IllegalStateException when the store cannot hold another pipeline
+	 * @throws PipelineStoreFullException when the store cannot hold another pipeline
 	 * @return the recorded pipeline: equal to {@code pipeline} when this call recorded it or an
 	 *         equal plan was recorded before, otherwise the different plan already bound to its identity
 	 */
