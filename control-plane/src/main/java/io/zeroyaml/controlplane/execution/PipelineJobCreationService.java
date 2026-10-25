@@ -33,7 +33,7 @@ import io.zeroyaml.controlplane.domain.pipeline.PipelineJobTranslator;
  * returned list.</p>
  *
  * <p>Idempotency: Job identities are derived from the pipeline identity and the
- * step name, and the pipeline identity from the repository revision, so a
+ * step name, and the pipeline identity from the repository location and revision, so a
  * repeated webhook delivery or an inference retry for the same revision maps to
  * Jobs that are already recorded. Those are returned as recorded and never
  * duplicated or reset, whatever state they have reached. Each Job is recorded
@@ -72,7 +72,9 @@ public class PipelineJobCreationService {
 	 * already recorded.
 	 *
 	 * @param pipeline validated pipeline to execute
-	 * @return the recorded Job of every step, in pipeline order, and how many were new
+	 * @return the recorded Job of every step, in pipeline order, and how many were new; the Jobs
+	 *         are the store's own instances, so callers read them and change them only through
+	 *         {@link JobStore#update}
 	 * @throws PipelineJobConflictException when the pipeline identity is bound to a different
 	 *         plan; nothing is recorded in that case
 	 */
@@ -80,10 +82,17 @@ public class PipelineJobCreationService {
 		Objects.requireNonNull(pipeline, "pipeline must not be null");
 
 		if (!pipelines.recordIfAbsent(pipeline).equals(pipeline)) {
+			log.warn("Pipeline {} at revision {}: refused, identity is bound to a different plan",
+					pipeline.id().value(), pipeline.source().revision());
 			throw new PipelineJobConflictException(pipeline.id());
 		}
 
 		var planned = translator.translate(pipeline, clock.instant());
+		// Check every already-recorded Job before recording any, so a broken one cannot leave a partial set.
+		for (var pipelineJob : planned) {
+			jobs.find(pipelineJob.job().id())
+					.ifPresent(job -> requireSameDefinition(pipeline, job, pipelineJob.job()));
+		}
 		var recorded = new ArrayList<PipelineJob>(planned.size());
 		var createdCount = 0;
 		for (var pipelineJob : planned) {
@@ -91,7 +100,7 @@ public class PipelineJobCreationService {
 			if (job == pipelineJob.job()) {
 				createdCount++;
 			} else {
-				requireSameDefinition(job, pipelineJob.job());
+				requireSameDefinition(pipeline, job, pipelineJob.job());
 			}
 			recorded.add(new PipelineJob(pipelineJob.pipelineId(), pipelineJob.position(), pipelineJob.stepName(), job));
 		}
@@ -107,8 +116,10 @@ public class PipelineJobCreationService {
 	 * recorded outside pipeline Job creation. That is a broken invariant, not a
 	 * conflicting request.
 	 */
-	private static void requireSameDefinition(Job recorded, Job expected) {
+	private static void requireSameDefinition(Pipeline pipeline, Job recorded, Job expected) {
 		if (!recorded.repository().equals(expected.repository()) || !recorded.execution().equals(expected.execution())) {
+			log.error("Pipeline {} at revision {}: Job {} is recorded with another definition",
+					pipeline.id().value(), pipeline.source().revision(), expected.id().value());
 			throw new IllegalStateException(
 					"Job " + expected.id().value() + " is recorded with a definition that its pipeline step does not have");
 		}

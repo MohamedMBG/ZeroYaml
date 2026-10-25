@@ -7,8 +7,8 @@ import io.zeroyaml.controlplane.domain.pipeline.PipelineId;
  * recorded with a different plan: another repository, other steps, or other
  * commands.
  *
- * <p>Pipeline identities are derived from the repository revision, so this
- * means the same revision now yields another plan, for example after an
+ * <p>Pipeline identities are derived from the repository location and revision,
+ * so this means the same revision now yields another plan, for example after an
  * inference rule changed. Reusing the recorded Jobs would run a plan nobody
  * decided on, mixing both plans would leave Jobs that belong to neither, and
  * replacing them would rewrite history, so creation is refused and nothing is

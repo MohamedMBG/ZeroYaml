@@ -199,6 +199,28 @@ class PipelineJobCreationServiceTest {
 	}
 
 	@Test
+	void recordsNoJobWhenALaterStepCollidesWithAForeignJob() {
+		var pipeline = pipeline(step("build", "make"), step("test", "make", "test"));
+		var foreign = Job.create(jobIdOf(pipeline, "test"), SOURCE, new ExecutionDefinition(List.of("rm", "-rf", "."), "."), NOW);
+		jobs.add(foreign);
+
+		assertThrows(IllegalStateException.class, () -> service.createJobs(pipeline));
+
+		assertTrue(jobs.find(jobIdOf(pipeline, "build")).isEmpty());
+	}
+
+	@Test
+	void refusesNewPipelinesOnceTheStoreIsFull() {
+		for (var i = 0; i < InMemoryPipelineStore.MAX_PIPELINES; i++) {
+			pipelines.recordIfAbsent(new Pipeline(new PipelineId(UUID.randomUUID()), SOURCE, List.of(step("build", "make"))));
+		}
+		var recorded = pipeline(step("build", "make"));
+
+		assertThrows(IllegalStateException.class, () -> service.createJobs(recorded));
+		assertTrue(jobs.find(jobIdOf(recorded, "build")).isEmpty());
+	}
+
+	@Test
 	void rejectsMissingPipeline() {
 		assertThrows(NullPointerException.class, () -> service.createJobs(null));
 	}

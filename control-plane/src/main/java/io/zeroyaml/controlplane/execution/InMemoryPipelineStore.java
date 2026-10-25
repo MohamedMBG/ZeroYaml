@@ -14,19 +14,37 @@ import io.zeroyaml.controlplane.domain.pipeline.PipelineId;
  *
  * <p>Growth: one entry per distinct pipeline, never evicted until restart, and
  * each pipeline holds at most 50 steps. Evicting an entry would let a changed plan
- * reuse the identity of Jobs that still exist, so the bound is the process
- * lifetime until durable persistence replaces this store.</p>
+ * reuse the identity of Jobs that still exist, so the store refuses new
+ * pipelines beyond {@value #MAX_PIPELINES} and fails loudly instead of
+ * exhausting the heap. Together with the step limit this bounds the Jobs
+ * recorded through pipeline creation until durable persistence replaces this
+ * store.</p>
  */
 @Component
 class InMemoryPipelineStore implements PipelineStore {
 
+	static final int MAX_PIPELINES = 10_000;
+
 	private final ConcurrentHashMap<PipelineId, Pipeline> pipelinesById = new ConcurrentHashMap<>();
 
+	/**
+	 * Synchronized so the size check and the insert are one step; contention is
+	 * acceptable because this runs once per webhook delivery.
+	 *
+	 * @throws IllegalStateException when {@value #MAX_PIPELINES} pipelines are already recorded
+	 */
 	@Override
-	public Pipeline recordIfAbsent(Pipeline pipeline) {
+	public synchronized Pipeline recordIfAbsent(Pipeline pipeline) {
 		Objects.requireNonNull(pipeline, "pipeline must not be null");
 
-		var existing = pipelinesById.putIfAbsent(pipeline.id(), pipeline);
-		return existing == null ? pipeline : existing;
+		var existing = pipelinesById.get(pipeline.id());
+		if (existing != null) {
+			return existing;
+		}
+		if (pipelinesById.size() >= MAX_PIPELINES) {
+			throw new IllegalStateException("Pipeline store is full at " + MAX_PIPELINES + " pipelines");
+		}
+		pipelinesById.put(pipeline.id(), pipeline);
+		return pipeline;
 	}
 }

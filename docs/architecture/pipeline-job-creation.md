@@ -92,8 +92,18 @@ can embed credentials.
   plan binding therefore hold per Control Plane process.
 - Memory grows with every distinct pipeline: one plan entry and at most 50 Jobs
   per pipeline, never evicted before restart. Evicting would let a changed plan
-  reuse the identities of Jobs that still exist, so no eviction is applied; the
-  bound is the process lifetime until #28 replaces both stores.
+  reuse the identities of Jobs that still exist, so no eviction is applied.
+  Instead the in-memory `PipelineStore` holds at most 10,000 pipelines and
+  fails with `IllegalStateException` for a new one beyond that, which bounds the
+  heap until #28 replaces both stores. Mapping that failure to a response
+  belongs to #30.
+- A pipeline with an already-recorded Job whose definition differs is detected
+  before any Job of the call is recorded, so the call fails without a partial
+  set. Both this and a refused plan are logged with the pipeline identity and
+  revision.
+- The returned Jobs are the store's own instances. Callers read them and
+  change them only through `JobStore.update`; returning snapshots belongs to
+  persistence (#28), where the store stops sharing aggregates.
 - A plan bound to a pipeline identity cannot be replaced, even deliberately.
   Re-running a revision with new inference rules needs an explicit supersede or
   re-run decision, which belongs to the Phase 3 pipeline lifecycle.
