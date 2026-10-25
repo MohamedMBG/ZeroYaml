@@ -31,7 +31,6 @@ import io.zeroyaml.controlplane.domain.job.JobStatus;
 import io.zeroyaml.controlplane.domain.job.RepositoryReference;
 import io.zeroyaml.controlplane.domain.pipeline.Pipeline;
 import io.zeroyaml.controlplane.domain.pipeline.PipelineId;
-import io.zeroyaml.controlplane.domain.pipeline.PipelineJob;
 import io.zeroyaml.controlplane.domain.pipeline.PipelineJobTranslator;
 import io.zeroyaml.controlplane.domain.pipeline.PipelineStep;
 
@@ -60,11 +59,12 @@ class PipelineJobCreationServiceTest {
 		assertEquals(PIPELINE_ID, creation.pipelineId());
 		assertEquals(2, creation.createdCount());
 		assertFalse(creation.alreadyRecorded());
-		assertEquals(List.of("build", "test"), creation.jobs().stream().map(PipelineJob::stepName).toList());
-		assertEquals(List.of(1, 2), creation.jobs().stream().map(PipelineJob::position).toList());
-		for (var pipelineJob : creation.jobs()) {
-			var recorded = jobs.find(pipelineJob.job().id()).orElseThrow();
-			assertSame(pipelineJob.job(), recorded);
+		assertEquals(List.of("build", "test"), creation.jobs().stream().map(PipelineJobReference::stepName).toList());
+		assertEquals(List.of(1, 2), creation.jobs().stream().map(PipelineJobReference::position).toList());
+		for (var reference : creation.jobs()) {
+			assertEquals(PIPELINE_ID, reference.pipelineId());
+			assertEquals(jobIdOf(pipeline, reference.stepName()), reference.jobId());
+			var recorded = jobs.find(reference.jobId()).orElseThrow();
 			assertEquals(SOURCE, recorded.repository());
 			assertEquals(JobStatus.CREATED, recorded.status());
 			assertEquals(NOW, recorded.createdAt());
@@ -75,17 +75,21 @@ class PipelineJobCreationServiceTest {
 	void repeatedDeliveryReturnsRecordedJobsWithoutDuplicates() {
 		var pipeline = pipeline(step("build", "make"), step("test", "make", "test"));
 		var first = service.createJobs(pipeline);
-		first.jobs().get(0).job().queue(NOW.plusSeconds(1));
+		var buildId = first.jobs().get(0).jobId();
+		var buildJob = jobs.find(buildId).orElseThrow();
+		jobs.update(buildId, job -> {
+			job.queue(NOW.plusSeconds(1));
+			return job;
+		});
 
 		var repeated = service.createJobs(pipeline);
 
 		assertTrue(repeated.alreadyRecorded());
 		assertEquals(0, repeated.createdCount());
-		for (var i = 0; i < first.jobs().size(); i++) {
-			assertSame(first.jobs().get(i).job(), repeated.jobs().get(i).job());
-		}
+		assertEquals(first.jobs(), repeated.jobs());
 		// The repeat neither resets progress nor replaces the recorded Job.
-		assertEquals(JobStatus.QUEUED, repeated.jobs().get(0).job().status());
+		assertSame(buildJob, jobs.find(buildId).orElseThrow());
+		assertEquals(JobStatus.QUEUED, jobs.find(buildId).orElseThrow().status());
 	}
 
 	@Test
@@ -95,7 +99,7 @@ class PipelineJobCreationServiceTest {
 		var retried = service.createJobs(pipeline(step("build", "make")));
 
 		assertTrue(retried.alreadyRecorded());
-		assertSame(first.jobs().get(0).job(), retried.jobs().get(0).job());
+		assertEquals(first.jobs(), retried.jobs());
 	}
 
 	@Test
@@ -109,8 +113,10 @@ class PipelineJobCreationServiceTest {
 		var creation = service.createJobs(pipeline);
 
 		assertEquals(1, creation.createdCount());
-		assertSame(earlierBuild, creation.jobs().get(0).job());
-		assertSame(creation.jobs().get(1).job(), jobs.find(creation.jobs().get(1).job().id()).orElseThrow());
+		assertEquals(earlierBuild.id(), creation.jobs().get(0).jobId());
+		assertSame(earlierBuild, jobs.find(earlierBuild.id()).orElseThrow());
+		assertEquals(jobIdOf(pipeline, "test"), creation.jobs().get(1).jobId());
+		assertTrue(jobs.find(creation.jobs().get(1).jobId()).isPresent());
 	}
 
 	@Test
@@ -121,7 +127,7 @@ class PipelineJobCreationServiceTest {
 		assertThrows(PipelineJobConflictException.class, () -> service.createJobs(changed));
 
 		assertTrue(jobs.find(jobIdOf(changed, "lint")).isEmpty());
-		assertEquals(List.of("make"), recorded.jobs().get(0).job().execution().command());
+		assertEquals(List.of("make"), jobs.find(recorded.jobs().get(0).jobId()).orElseThrow().execution().command());
 	}
 
 	@Test
@@ -139,7 +145,7 @@ class PipelineJobCreationServiceTest {
 
 		assertThrows(PipelineJobConflictException.class, () -> service.createJobs(otherRepository));
 
-		var buildJob = jobs.find(recorded.jobs().get(0).job().id()).orElseThrow();
+		var buildJob = jobs.find(recorded.jobs().get(0).jobId()).orElseThrow();
 		assertEquals(SOURCE, buildJob.repository());
 	}
 
@@ -175,8 +181,9 @@ class PipelineJobCreationServiceTest {
 		}
 		assertEquals(4, winners.size());
 		assertEquals(4, conflicts);
-		var winningSteps = winners.get(0).jobs().stream().map(PipelineJob::stepName).toList();
-		winners.forEach(winner -> assertEquals(winningSteps, winner.jobs().stream().map(PipelineJob::stepName).toList()));
+		var winningSteps = winners.get(0).jobs().stream().map(PipelineJobReference::stepName).toList();
+		winners.forEach(winner -> assertEquals(winningSteps,
+				winner.jobs().stream().map(PipelineJobReference::stepName).toList()));
 
 		// Only the winning plan's Jobs exist; the losing plan left nothing behind.
 		var winner = winningSteps.contains("lint") ? planA : planB;

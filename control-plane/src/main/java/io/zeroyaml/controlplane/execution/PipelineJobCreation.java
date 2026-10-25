@@ -4,17 +4,16 @@ import java.util.List;
 import java.util.Objects;
 
 import io.zeroyaml.controlplane.domain.pipeline.PipelineId;
-import io.zeroyaml.controlplane.domain.pipeline.PipelineJob;
 
 /**
  * Result of recording the Jobs of one pipeline.
  *
  * @param pipelineId pipeline the Jobs belong to
- * @param jobs the recorded Job of every step, in pipeline order; a Job recorded by an earlier
- *        call is returned as recorded, not as a new instance
+ * @param jobs a reference to the recorded Job of every step, in pipeline order; a Job recorded
+ *        by an earlier call keeps its identity and state
  * @param createdCount how many of {@code jobs} this call recorded; the rest already existed
  */
-public record PipelineJobCreation(PipelineId pipelineId, List<PipelineJob> jobs, int createdCount) {
+public record PipelineJobCreation(PipelineId pipelineId, List<PipelineJobReference> jobs, int createdCount) {
 
 	public PipelineJobCreation {
 		Objects.requireNonNull(pipelineId, "pipelineId must not be null");

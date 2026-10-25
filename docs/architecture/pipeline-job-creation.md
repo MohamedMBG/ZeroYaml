@@ -54,8 +54,12 @@ records a pipeline in two steps:
    `JobStore.recordIfAbsent`, which atomically records it or returns the Job
    already recorded under its identity. That is one store operation per step.
 
-It returns a `PipelineJobCreation` with every step's recorded Job, in order,
-and how many of them this call created.
+It returns a `PipelineJobCreation` with a `PipelineJobReference` for every
+step's recorded Job, in order, and how many of them this call created. A
+reference carries the pipeline identity, the step name and position, and the
+Job identity, never the Job itself: the recorded Job is a mutable aggregate
+owned by the `JobStore`, so callers read it through `JobStore.find` and change
+it only through `JobStore.update`, which serializes changes per Job.
 
 The pipeline identity is derived from the repository location and revision
 (see [`pipeline-inference.md`](./pipeline-inference.md)), and the Job identity
@@ -101,12 +105,13 @@ can embed credentials.
   before any Job of the call is recorded, so the call fails without a partial
   set. Both this and a refused plan are logged with the pipeline identity and
   revision.
-- The returned Jobs are the store's own instances. Callers read them and
-  change them only through `JobStore.update`; returning snapshots belongs to
-  persistence (#28), where the store stops sharing aggregates.
 - A plan bound to a pipeline identity cannot be replaced, even deliberately.
   Re-running a revision with new inference rules needs an explicit supersede or
   re-run decision, which belongs to the Phase 3 pipeline lifecycle.
+- `PipelineJobConflictException` is unchecked. Once the webhook path calls this
+  service, a redelivered revision whose plan changed under new inference rules
+  would surface as a server error unless the caller maps it. Defining that
+  mapping, together with the full-store `IllegalStateException`, belongs to #30.
 - The link from a Job back to its step is returned to the caller and can be
   recomputed from the bound plan and the identities, but it is not stored as
   such. Storing it is part of persistence (#28).

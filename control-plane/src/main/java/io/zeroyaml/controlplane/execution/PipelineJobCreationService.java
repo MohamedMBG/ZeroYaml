@@ -11,7 +11,6 @@ import org.springframework.stereotype.Service;
 
 import io.zeroyaml.controlplane.domain.job.Job;
 import io.zeroyaml.controlplane.domain.pipeline.Pipeline;
-import io.zeroyaml.controlplane.domain.pipeline.PipelineJob;
 import io.zeroyaml.controlplane.domain.pipeline.PipelineJobTranslator;
 
 /**
@@ -35,8 +34,8 @@ import io.zeroyaml.controlplane.domain.pipeline.PipelineJobTranslator;
  * <p>Idempotency: Job identities are derived from the pipeline identity and the
  * step name, and the pipeline identity from the repository location and revision, so a
  * repeated webhook delivery or an inference retry for the same revision maps to
- * Jobs that are already recorded. Those are returned as recorded and never
- * duplicated or reset, whatever state they have reached. Each Job is recorded
+ * Jobs that are already recorded. References to those are returned, and the
+ * Jobs are never duplicated or reset, whatever state they have reached. Each Job is recorded
  * through {@link JobStore#recordIfAbsent}, so concurrent calls for the same plan
  * record each Job exactly once, and a call that finds only some Jobs recorded,
  * for example after an earlier call failed part-way, records the missing ones.</p>
@@ -72,8 +71,8 @@ public class PipelineJobCreationService {
 	 * already recorded.
 	 *
 	 * @param pipeline validated pipeline to execute
-	 * @return the recorded Job of every step, in pipeline order, and how many were new; the Jobs
-	 *         are the store's own instances, so callers read them and change them only through
+	 * @return a reference to the recorded Job of every step, in pipeline order, and how many were
+	 *         new; callers read the Jobs through {@link JobStore#find} and change them only through
 	 *         {@link JobStore#update}
 	 * @throws PipelineJobConflictException when the pipeline identity is bound to a different
 	 *         plan; nothing is recorded in that case
@@ -93,7 +92,7 @@ public class PipelineJobCreationService {
 			jobs.find(pipelineJob.job().id())
 					.ifPresent(job -> requireSameDefinition(pipeline, job, pipelineJob.job()));
 		}
-		var recorded = new ArrayList<PipelineJob>(planned.size());
+		var recorded = new ArrayList<PipelineJobReference>(planned.size());
 		var createdCount = 0;
 		for (var pipelineJob : planned) {
 			var job = jobs.recordIfAbsent(pipelineJob.job());
@@ -102,7 +101,8 @@ public class PipelineJobCreationService {
 			} else {
 				requireSameDefinition(pipeline, job, pipelineJob.job());
 			}
-			recorded.add(new PipelineJob(pipelineJob.pipelineId(), pipelineJob.position(), pipelineJob.stepName(), job));
+			recorded.add(new PipelineJobReference(
+					pipelineJob.pipelineId(), pipelineJob.position(), pipelineJob.stepName(), job.id()));
 		}
 
 		var creation = new PipelineJobCreation(pipeline.id(), recorded, createdCount);
