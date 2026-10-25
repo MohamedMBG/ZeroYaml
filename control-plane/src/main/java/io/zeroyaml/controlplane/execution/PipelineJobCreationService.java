@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import io.zeroyaml.controlplane.domain.job.Job;
 import io.zeroyaml.controlplane.domain.pipeline.Pipeline;
 import io.zeroyaml.controlplane.domain.pipeline.PipelineJobTranslator;
 
@@ -22,37 +21,34 @@ import io.zeroyaml.controlplane.domain.pipeline.PipelineJobTranslator;
  * dispatches anything, and the Jobs stay in
  * {@link io.zeroyaml.controlplane.domain.job.JobStatus#CREATED}.</p>
  *
- * <p>Plan binding: before any Job is recorded, the pipeline is claimed through
- * {@link PipelineStore#recordIfAbsent}, which atomically binds its identity to
- * exactly one plan. A pipeline whose identity is already bound to a different
- * plan (another repository, other steps, or other commands) is refused with a
- * {@link PipelineJobConflictException} before anything is recorded, also when
- * the two plans race. Jobs of two plans therefore never mix under one identity,
- * and a step dropped from a later plan cannot leave a recorded Job outside the
- * returned list.</p>
+ * <p>Idempotency: a Job identity is derived from the pipeline identity, the
+ * step name, the source, and the step's execution, so an identity always means
+ * one Job definition. A repeated webhook delivery or an inference retry for the
+ * same plan therefore maps to Jobs that are already recorded; those are
+ * returned as recorded and never duplicated or reset, whatever state they have
+ * reached. Each Job is recorded through {@link JobStore#recordIfAbsent}, so
+ * concurrent calls for the same plan record each Job exactly once, and a call
+ * that finds only some Jobs recorded, for example after an earlier call failed
+ * part-way, records the missing ones.</p>
  *
- * <p>Idempotency: Job identities are derived from the pipeline identity and the
- * step name, and the pipeline identity from the repository location and revision, so a
- * repeated webhook delivery or an inference retry for the same revision maps to
- * Jobs that are already recorded. References to those are returned, and the
- * Jobs are never duplicated or reset, whatever state they have reached. Each Job is recorded
- * through {@link JobStore#recordIfAbsent}, so concurrent calls for the same plan
- * record each Job exactly once, and a call that finds only some Jobs recorded,
- * for example after an earlier call failed part-way, records the missing ones.</p>
+ * <p>A changed plan for the same revision, for example after an inference rule
+ * changed, yields new identities for the changed steps. Its new Jobs are
+ * recorded next to the earlier plan's Jobs, which stay untouched and are not
+ * part of the result. Deciding whether the earlier plan's Jobs must be stopped
+ * or superseded belongs to the Phase 3 pipeline lifecycle.</p>
  */
 @Service
 public class PipelineJobCreationService {
 
 	private static final Logger log = LoggerFactory.getLogger(PipelineJobCreationService.class);
 
-	private final PipelineStore pipelines;
 	private final JobStore jobs;
 	private final Clock clock;
 	private final PipelineJobTranslator translator = new PipelineJobTranslator();
 
 	@Autowired
-	PipelineJobCreationService(PipelineStore pipelines, JobStore jobs) {
-		this(pipelines, jobs, Clock.systemUTC());
+	PipelineJobCreationService(JobStore jobs) {
+		this(jobs, Clock.systemUTC());
 	}
 
 	/**
@@ -60,8 +56,7 @@ public class PipelineJobCreationService {
 	 * registration package already exposes a {@link Clock} bean, so a second one
 	 * is not registered here; that would make injection by type ambiguous.
 	 */
-	PipelineJobCreationService(PipelineStore pipelines, JobStore jobs, Clock clock) {
-		this.pipelines = Objects.requireNonNull(pipelines, "pipelines must not be null");
+	PipelineJobCreationService(JobStore jobs, Clock clock) {
 		this.jobs = Objects.requireNonNull(jobs, "jobs must not be null");
 		this.clock = Objects.requireNonNull(clock, "clock must not be null");
 	}
@@ -74,32 +69,17 @@ public class PipelineJobCreationService {
 	 * @return a reference to the recorded Job of every step, in pipeline order, and how many were
 	 *         new; callers read the Jobs through {@link JobStore#find} and change them only through
 	 *         {@link JobStore#update}
-	 * @throws PipelineJobConflictException when the pipeline identity is bound to a different
-	 *         plan; nothing is recorded in that case
 	 */
 	public PipelineJobCreation createJobs(Pipeline pipeline) {
 		Objects.requireNonNull(pipeline, "pipeline must not be null");
 
-		if (!pipelines.recordIfAbsent(pipeline).equals(pipeline)) {
-			log.warn("Pipeline {} at revision {}: refused, identity is bound to a different plan",
-					pipeline.id().value(), pipeline.source().revision());
-			throw new PipelineJobConflictException(pipeline.id());
-		}
-
 		var planned = translator.translate(pipeline, clock.instant());
-		// Check every already-recorded Job before recording any, so a broken one cannot leave a partial set.
-		for (var pipelineJob : planned) {
-			jobs.find(pipelineJob.job().id())
-					.ifPresent(job -> requireSameDefinition(pipeline, job, pipelineJob.job()));
-		}
 		var recorded = new ArrayList<PipelineJobReference>(planned.size());
 		var createdCount = 0;
 		for (var pipelineJob : planned) {
 			var job = jobs.recordIfAbsent(pipelineJob.job());
 			if (job == pipelineJob.job()) {
 				createdCount++;
-			} else {
-				requireSameDefinition(pipeline, job, pipelineJob.job());
 			}
 			recorded.add(new PipelineJobReference(
 					pipelineJob.pipelineId(), pipelineJob.position(), pipelineJob.stepName(), job.id()));
@@ -111,33 +91,16 @@ public class PipelineJobCreationService {
 	}
 
 	/**
-	 * The plan is bound to its pipeline identity before this runs, so a recorded
-	 * Job with a derived identity but another definition can only have been
-	 * recorded outside pipeline Job creation. That is a broken invariant, not a
-	 * conflicting request.
-	 */
-	private static void requireSameDefinition(Pipeline pipeline, Job recorded, Job expected) {
-		if (!recorded.repository().equals(expected.repository()) || !recorded.execution().equals(expected.execution())) {
-			log.error("Pipeline {} at revision {}: Job {} is recorded with another definition",
-					pipeline.id().value(), pipeline.source().revision(), expected.id().value());
-			throw new IllegalStateException(
-					"Job " + expected.id().value() + " is recorded with a definition that its pipeline step does not have");
-		}
-	}
-
-	/**
 	 * Records one audit line per call. The repository location is left out
-	 * because it can embed credentials; the revision and identities are enough
-	 * to correlate the Jobs with the push that produced them.
+	 * because it can embed credentials; the pipeline identity is enough to
+	 * correlate the Jobs with the push that produced them.
 	 */
 	private static void logCreation(Pipeline pipeline, PipelineJobCreation creation) {
 		if (creation.alreadyRecorded()) {
-			log.info("Pipeline {} at revision {}: all {} Jobs were already recorded",
-					pipeline.id().value(), pipeline.source().revision(), creation.jobs().size());
+			log.info("Pipeline {}: all {} Jobs were already recorded", pipeline.id().value(), creation.jobs().size());
 		} else {
-			log.info("Pipeline {} at revision {}: recorded {} of {} Jobs",
-					pipeline.id().value(), pipeline.source().revision(), creation.createdCount(),
-					creation.jobs().size());
+			log.info("Pipeline {}: recorded {} of {} Jobs",
+					pipeline.id().value(), creation.createdCount(), creation.jobs().size());
 		}
 	}
 }

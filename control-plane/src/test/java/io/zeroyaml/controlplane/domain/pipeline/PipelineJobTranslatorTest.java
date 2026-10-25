@@ -109,12 +109,23 @@ class PipelineJobTranslatorTest {
 	}
 
 	@Test
-	void identityDoesNotCoverThePlanSoChangedStepsShareJobIdentities() {
-		// Documents why the application layer binds a pipeline identity to one plan before recording Jobs.
+	void changedExecutionOrSourceYieldsAnotherJobIdentity() {
 		var original = new Pipeline(PIPELINE_ID, SOURCE, List.of(step("build", "make")));
-		var changed = new Pipeline(PIPELINE_ID, SOURCE, List.of(step("build", "make", "all")));
+		var changedCommand = new Pipeline(PIPELINE_ID, SOURCE, List.of(step("build", "make", "all")));
+		var otherSource = new RepositoryReference(URI.create("https://example.test/acme/other.git"), SOURCE.revision());
+		var changedSource = new Pipeline(PIPELINE_ID, otherSource, List.of(step("build", "make")));
 
-		assertEquals(jobIds(translator.translate(original, CREATED_AT)), jobIds(translator.translate(changed, CREATED_AT)));
+		var originalIds = jobIds(translator.translate(original, CREATED_AT));
+		assertNotEquals(originalIds, jobIds(translator.translate(changedCommand, CREATED_AT)));
+		assertNotEquals(originalIds, jobIds(translator.translate(changedSource, CREATED_AT)));
+	}
+
+	@Test
+	void argumentBoundariesDoNotShareAJobIdentity() {
+		var joined = new Pipeline(PIPELINE_ID, SOURCE, List.of(step("build", "make test")));
+		var split = new Pipeline(PIPELINE_ID, SOURCE, List.of(step("build", "make", "test")));
+
+		assertNotEquals(jobIds(translator.translate(joined, CREATED_AT)), jobIds(translator.translate(split, CREATED_AT)));
 	}
 
 	@Test

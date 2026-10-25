@@ -2,6 +2,7 @@ package io.zeroyaml.controlplane.execution;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -10,22 +11,18 @@ import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.function.IntFunction;
 import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.Test;
 
 import io.zeroyaml.controlplane.domain.job.ExecutionDefinition;
-import io.zeroyaml.controlplane.domain.job.Job;
 import io.zeroyaml.controlplane.domain.job.JobId;
 import io.zeroyaml.controlplane.domain.job.JobStatus;
 import io.zeroyaml.controlplane.domain.job.RepositoryReference;
@@ -36,7 +33,7 @@ import io.zeroyaml.controlplane.domain.pipeline.PipelineStep;
 
 /**
  * Covers recording the Jobs of a pipeline, including repeated input that must
- * not create duplicate Jobs and changed plans that must not mix with recorded ones.
+ * not create duplicate Jobs and changed plans that must not reuse recorded Jobs.
  */
 class PipelineJobCreationServiceTest {
 
@@ -45,10 +42,9 @@ class PipelineJobCreationServiceTest {
 			new RepositoryReference(URI.create("https://example.test/acme/service.git"), "0123456789abcdef");
 	private static final PipelineId PIPELINE_ID = new PipelineId(UUID.fromString("7d3c5a1e-0000-4000-8000-000000000001"));
 
-	private final PipelineStore pipelines = new InMemoryPipelineStore();
 	private final JobStore jobs = new InMemoryJobStore();
 	private final PipelineJobCreationService service =
-			new PipelineJobCreationService(pipelines, jobs, Clock.fixed(NOW, ZoneOffset.UTC));
+			new PipelineJobCreationService(jobs, Clock.fixed(NOW, ZoneOffset.UTC));
 
 	@Test
 	void recordsOneJobPerStepOfAMultiStepPipeline() {
@@ -105,8 +101,7 @@ class PipelineJobCreationServiceTest {
 	@Test
 	void recordsOnlyTheMissingJobsAfterAPartialEarlierAttempt() {
 		var pipeline = pipeline(step("build", "make"), step("test", "make", "test"));
-		// An earlier attempt bound the plan and recorded the first Job before failing.
-		pipelines.recordIfAbsent(pipeline);
+		// An earlier attempt recorded the first Job before failing.
 		var earlierBuild = new PipelineJobTranslator().translate(pipeline, NOW).get(0).job();
 		jobs.add(earlierBuild);
 
@@ -120,136 +115,66 @@ class PipelineJobCreationServiceTest {
 	}
 
 	@Test
-	void refusesAChangedCommandForARecordedPipelineAndRecordsNothing() {
-		var recorded = service.createJobs(pipeline(step("build", "make")));
-		var changed = pipeline(step("lint", "make", "lint"), step("build", "make", "all"));
+	void changedPlanRecordsItsOwnJobsAndLeavesTheEarlierOnesUntouched() {
+		var original = service.createJobs(pipeline(step("build", "make"), step("test", "make", "test")));
+		var originalBuildId = original.jobs().get(0).jobId();
+		var originalTestId = original.jobs().get(1).jobId();
+		var changed = pipeline(step("build", "make", "all"));
 
-		assertThrows(PipelineJobConflictException.class, () -> service.createJobs(changed));
+		var creation = service.createJobs(changed);
 
-		assertTrue(jobs.find(jobIdOf(changed, "lint")).isEmpty());
-		assertEquals(List.of("make"), jobs.find(recorded.jobs().get(0).jobId()).orElseThrow().execution().command());
+		assertEquals(1, creation.createdCount());
+		var changedBuildId = creation.jobs().get(0).jobId();
+		assertNotEquals(originalBuildId, changedBuildId);
+		assertEquals(List.of("make", "all"), jobs.find(changedBuildId).orElseThrow().execution().command());
+		// The earlier plan's Jobs, including the dropped step, keep their definition and state.
+		assertEquals(List.of("make"), jobs.find(originalBuildId).orElseThrow().execution().command());
+		assertEquals(List.of("make", "test"), jobs.find(originalTestId).orElseThrow().execution().command());
 	}
 
 	@Test
-	void refusesAPlanThatDropsAStepInsteadOfLeavingAnOrphanJob() {
-		service.createJobs(pipeline(step("build", "make"), step("test", "make", "test")));
-
-		assertThrows(PipelineJobConflictException.class, () -> service.createJobs(pipeline(step("build", "make"))));
-	}
-
-	@Test
-	void refusesTheSamePipelineIdentityForADifferentRepository() {
+	void samePipelineIdentityForADifferentRepositoryRecordsSeparateJobs() {
 		var recorded = service.createJobs(pipeline(step("build", "make")));
 		var otherSource = new RepositoryReference(URI.create("https://example.test/acme/other.git"), "0123456789abcdef");
-		var otherRepository = new Pipeline(PIPELINE_ID, otherSource, List.of(step("build", "make")));
 
-		assertThrows(PipelineJobConflictException.class, () -> service.createJobs(otherRepository));
+		var other = service.createJobs(new Pipeline(PIPELINE_ID, otherSource, List.of(step("build", "make"))));
 
-		var buildJob = jobs.find(recorded.jobs().get(0).jobId()).orElseThrow();
-		assertEquals(SOURCE, buildJob.repository());
+		assertEquals(1, other.createdCount());
+		assertNotEquals(recorded.jobs().get(0).jobId(), other.jobs().get(0).jobId());
+		assertEquals(SOURCE, jobs.find(recorded.jobs().get(0).jobId()).orElseThrow().repository());
+		assertEquals(otherSource, jobs.find(other.jobs().get(0).jobId()).orElseThrow().repository());
 	}
 
 	@Test
 	void concurrentDeliveriesRecordEachJobExactlyOnce() throws Exception {
 		var pipeline = pipeline(step("build", "make"), step("test", "make", "test"));
-
-		var results = runConcurrently(8, i -> pipeline);
-
-		var totalCreated = 0;
-		for (var result : results) {
-			totalCreated += result.get(10, TimeUnit.SECONDS).createdCount();
-		}
-		assertEquals(2, totalCreated);
-	}
-
-	@Test
-	void racingDifferentPlansForOneIdentityRecordExactlyOnePlan() throws Exception {
-		var planA = pipeline(step("lint", "make", "lint"), step("build", "make"));
-		var planB = pipeline(step("build", "make", "all"), step("test", "make", "test"));
-
-		var results = runConcurrently(8, i -> i % 2 == 0 ? planA : planB);
-
-		var winners = new ArrayList<PipelineJobCreation>();
-		var conflicts = 0;
-		for (var result : results) {
-			try {
-				winners.add(result.get(10, TimeUnit.SECONDS));
-			} catch (ExecutionException e) {
-				assertTrue(e.getCause() instanceof PipelineJobConflictException, e.getCause().toString());
-				conflicts++;
-			}
-		}
-		assertEquals(4, winners.size());
-		assertEquals(4, conflicts);
-		var winningSteps = winners.get(0).jobs().stream().map(PipelineJobReference::stepName).toList();
-		winners.forEach(winner -> assertEquals(winningSteps,
-				winner.jobs().stream().map(PipelineJobReference::stepName).toList()));
-
-		// Only the winning plan's Jobs exist; the losing plan left nothing behind.
-		var winner = winningSteps.contains("lint") ? planA : planB;
-		var loser = winner == planA ? planB : planA;
-		var losingOnlyStep = winner == planA ? "test" : "lint";
-		assertTrue(jobs.find(jobIdOf(loser, losingOnlyStep)).isEmpty());
-		assertEquals(winner.steps().stream().filter(s -> s.name().equals("build")).findFirst().orElseThrow().execution(),
-				jobs.find(jobIdOf(winner, "build")).orElseThrow().execution());
-	}
-
-	@Test
-	void refusesAJobRecordedOutsidePipelineCreationWithAnotherDefinition() {
-		var pipeline = pipeline(step("build", "make"));
-		var foreign = Job.create(jobIdOf(pipeline, "build"), SOURCE, new ExecutionDefinition(List.of("rm", "-rf", "."), "."), NOW);
-		jobs.add(foreign);
-
-		assertThrows(IllegalStateException.class, () -> service.createJobs(pipeline));
-
-		assertSame(foreign, jobs.find(foreign.id()).orElseThrow());
-	}
-
-	@Test
-	void recordsNoJobWhenALaterStepCollidesWithAForeignJob() {
-		var pipeline = pipeline(step("build", "make"), step("test", "make", "test"));
-		var foreign = Job.create(jobIdOf(pipeline, "test"), SOURCE, new ExecutionDefinition(List.of("rm", "-rf", "."), "."), NOW);
-		jobs.add(foreign);
-
-		assertThrows(IllegalStateException.class, () -> service.createJobs(pipeline));
-
-		assertTrue(jobs.find(jobIdOf(pipeline, "build")).isEmpty());
-	}
-
-	@Test
-	void refusesNewPipelinesOnceTheStoreIsFull() {
-		for (var i = 0; i < InMemoryPipelineStore.MAX_PIPELINES; i++) {
-			pipelines.recordIfAbsent(new Pipeline(new PipelineId(UUID.randomUUID()), SOURCE, List.of(step("build", "make"))));
-		}
-		var recorded = pipeline(step("build", "make"));
-
-		assertThrows(PipelineStoreFullException.class, () -> service.createJobs(recorded));
-		assertTrue(jobs.find(jobIdOf(recorded, "build")).isEmpty());
-	}
-
-	@Test
-	void rejectsMissingPipeline() {
-		assertThrows(NullPointerException.class, () -> service.createJobs(null));
-	}
-
-	private List<Future<PipelineJobCreation>> runConcurrently(int callers, IntFunction<Pipeline> input)
-			throws InterruptedException {
+		var callers = 8;
 		var start = new CountDownLatch(1);
 		var executor = Executors.newFixedThreadPool(callers);
 		try {
 			List<Future<PipelineJobCreation>> futures = IntStream.range(0, callers)
 					.mapToObj(i -> executor.submit((Callable<PipelineJobCreation>) () -> {
 						start.await();
-						return service.createJobs(input.apply(i));
+						return service.createJobs(pipeline);
 					}))
 					.toList();
 			start.countDown();
 			executor.shutdown();
 			assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
-			return futures;
+
+			var totalCreated = 0;
+			for (var future : futures) {
+				totalCreated += future.get(10, TimeUnit.SECONDS).createdCount();
+			}
+			assertEquals(2, totalCreated);
 		} finally {
 			executor.shutdownNow();
 		}
+	}
+
+	@Test
+	void rejectsMissingPipeline() {
+		assertThrows(NullPointerException.class, () -> service.createJobs(null));
 	}
 
 	private static JobId jobIdOf(Pipeline pipeline, String stepName) {

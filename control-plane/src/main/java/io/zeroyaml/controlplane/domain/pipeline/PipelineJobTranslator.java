@@ -21,15 +21,14 @@ import io.zeroyaml.controlplane.domain.job.JobId;
  * selecting a Runner, and dispatching belong to the application boundary.</p>
  *
  * <p>Identity rule: a Job identity is a name-based UUID over the pipeline
- * identity and the step name. Pipeline identities are themselves derived from
- * the source (see the inference strategy), so a repeated webhook delivery or an
- * inference retry for the same revision yields the same Job identities, which
- * is what lets the application layer recognize Jobs it already recorded. Step
- * names are unique within a pipeline, so the identities within one pipeline are
- * distinct. The identity does not cover the plan itself: two different plans
- * with the same pipeline identity share Job identities for equally named steps,
- * so the application layer must bind a pipeline identity to one plan before
- * recording its Jobs.</p>
+ * identity, the step name, the source, and the step's execution (command and
+ * working directory), so an identity always implies one Job definition. A
+ * repeated webhook delivery or an inference retry for the same plan yields the
+ * same identities, which lets the application layer recognize Jobs it already
+ * recorded. A changed plan for the same revision yields new identities for the
+ * changed steps and never reuses a recorded Job for another definition; Jobs of
+ * the earlier plan stay recorded and untouched. Step names are unique within a
+ * pipeline, so the identities within one pipeline are distinct.</p>
  *
  * <p>The translation is a pure function of its arguments: it records nothing,
  * selects no Runner, and performs no I/O.</p>
@@ -50,15 +49,24 @@ public final class PipelineJobTranslator {
 		var jobs = new ArrayList<PipelineJob>(pipeline.steps().size());
 		var position = 1;
 		for (var step : pipeline.steps()) {
-			var job = Job.create(jobIdFor(pipeline.id(), step), pipeline.source(), step.execution(), createdAt);
+			var job = Job.create(jobIdFor(pipeline, step), pipeline.source(), step.execution(), createdAt);
 			jobs.add(new PipelineJob(pipeline.id(), position++, step.name(), job));
 		}
 		return List.copyOf(jobs);
 	}
 
-	private static JobId jobIdFor(PipelineId pipelineId, PipelineStep step) {
-		// The '/' separator cannot appear in a step name, so distinct pairs never share a seed.
-		var seed = "pipeline-job:" + pipelineId.value() + "/" + step.name();
-		return new JobId(UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8)));
+	private static JobId jobIdFor(Pipeline pipeline, PipelineStep step) {
+		var seed = new StringBuilder("pipeline-job:").append(pipeline.id().value());
+		append(seed, step.name());
+		append(seed, pipeline.source().location().toString());
+		append(seed, pipeline.source().revision());
+		append(seed, step.execution().workingDirectory());
+		step.execution().command().forEach(argument -> append(seed, argument));
+		return new JobId(UUID.nameUUIDFromBytes(seed.toString().getBytes(StandardCharsets.UTF_8)));
+	}
+
+	// Length prefixes keep distinct inputs from sharing a seed, whatever characters a field contains.
+	private static void append(StringBuilder seed, String field) {
+		seed.append('|').append(field.length()).append(':').append(field);
 	}
 }
