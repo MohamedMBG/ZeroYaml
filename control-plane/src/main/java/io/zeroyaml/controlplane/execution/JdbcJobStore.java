@@ -127,7 +127,7 @@ class JdbcJobStore implements JobStore {
 			throw new IllegalStateException("Job " + job.id().value() + " already has another definition");
 		}
 		if (runId != null) {
-			// A changed plan may move an unchanged step without changing its Job identity.
+			// shortcut: positions follow the last request per step; version plans when concurrent re-planning is supported.
 			jdbc.sql("""
 						UPDATE job SET pipeline_run_id = :runId, step_name = :stepName, step_position = :position
 						WHERE id = :id AND (pipeline_run_id IS NULL
