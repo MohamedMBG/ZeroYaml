@@ -75,7 +75,7 @@ class JdbcJobStoreTest {
 		var test = creation.jobs().get(1);
 
 		assertEquals(2, creation.createdCount());
-		assertEquals(List.of(build, test), store.findByPipeline(PIPELINE_ID));
+		assertEquals(List.of(build, test), store.findByPipeline(PIPELINE_ID, SOURCE));
 		assertEquals(List.of(build, test), store.findByRepository(SOURCE.location()));
 		assertEquals(List.of(build, test), store.findBySource(SOURCE));
 		assertEquals(SOURCE, store.find(build.jobId()).orElseThrow().repository());
@@ -164,7 +164,41 @@ class JdbcJobStoreTest {
 		assertSame(direct, store.recordIfAbsent(direct));
 		var creation = new PipelineJobCreationService(store, Clock.fixed(NOW, ZoneOffset.UTC)).createJobs(pipeline);
 		assertEquals(1, creation.createdCount());
-		assertEquals(creation.jobs(), freshStore().findByPipeline(PIPELINE_ID));
+		assertEquals(creation.jobs(), freshStore().findByPipeline(PIPELINE_ID, SOURCE));
+	}
+
+	@Test
+	void reorderedPlanKeepsJobsAndUpdatesTheirStepOrder() {
+		var pipeline = pipeline(SOURCE);
+		var service = new PipelineJobCreationService(store, Clock.fixed(NOW, ZoneOffset.UTC));
+		var first = service.createJobs(pipeline);
+		var buildId = first.jobs().get(0).jobId();
+		store.update(buildId, job -> { job.queue(NOW.plusSeconds(1)); return job.status(); });
+
+		var reordered = new Pipeline(PIPELINE_ID, SOURCE, List.of(
+				pipeline.steps().get(1), pipeline.steps().get(0)));
+		var second = service.createJobs(reordered);
+
+		assertEquals(0, second.createdCount());
+		assertEquals(List.of("test", "build"), second.jobs().stream().map(PipelineJobReference::stepName).toList());
+		assertEquals(second.jobs(), freshStore().findByPipeline(PIPELINE_ID, SOURCE));
+		assertEquals(JobStatus.QUEUED, freshStore().find(buildId).orElseThrow().status());
+		assertEquals(2, jdbc.sql("SELECT count(*) FROM job").query(Integer.class).single());
+	}
+
+	@Test
+	void pipelineLookupSeparatesSourcesSharingAnIdentity() {
+		var service = new PipelineJobCreationService(store, Clock.fixed(NOW, ZoneOffset.UTC));
+		var original = service.createJobs(pipeline(SOURCE));
+		var otherRepository = new RepositoryReference(URI.create("https://example.test/acme/other.git"), "abc123");
+		var otherRevision = new RepositoryReference(SOURCE.location(), "def456");
+		var second = service.createJobs(pipeline(otherRepository));
+		var third = service.createJobs(pipeline(otherRevision));
+
+		assertEquals(original.jobs(), store.findByPipeline(PIPELINE_ID, SOURCE));
+		assertEquals(second.jobs(), store.findByPipeline(PIPELINE_ID, otherRepository));
+		assertEquals(third.jobs(), store.findByPipeline(PIPELINE_ID, otherRevision));
+		assertEquals(3, jdbc.sql("SELECT count(*) FROM pipeline_run").query(Integer.class).single());
 	}
 
 	@Test

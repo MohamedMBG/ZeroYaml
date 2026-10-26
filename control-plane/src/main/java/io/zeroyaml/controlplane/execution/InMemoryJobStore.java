@@ -40,15 +40,17 @@ class InMemoryJobStore implements JobStore {
 	public Job recordIfAbsent(PipelineJob pipelineJob) {
 		Objects.requireNonNull(pipelineJob, "pipelineJob must not be null");
 		var recorded = recordIfAbsent(pipelineJob.job());
-		pipelineJobs.putIfAbsent(recorded.id(), new PipelineJobReference(
+		pipelineJobs.put(recorded.id(), new PipelineJobReference(
 				pipelineJob.pipelineId(), pipelineJob.position(), pipelineJob.stepName(), recorded.id()));
 		return recorded;
 	}
 
 	@Override
-	public List<PipelineJobReference> findByPipeline(PipelineId pipelineId) {
+	public List<PipelineJobReference> findByPipeline(PipelineId pipelineId, RepositoryReference source) {
 		Objects.requireNonNull(pipelineId, "pipelineId must not be null");
-		return references().stream().filter(reference -> reference.pipelineId().equals(pipelineId)).toList();
+		Objects.requireNonNull(source, "source must not be null");
+		return references().stream().filter(reference -> reference.pipelineId().equals(pipelineId)
+				&& jobsById.get(reference.jobId()).repository().equals(source)).toList();
 	}
 
 	@Override

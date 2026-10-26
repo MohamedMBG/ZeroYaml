@@ -45,8 +45,8 @@ public interface JobStore {
 	/** Records a Job and its link to the pipeline step that created it. */
 	Job recordIfAbsent(PipelineJob pipelineJob);
 
-	/** Returns pipeline Jobs in step order for one pipeline identity. */
-	List<PipelineJobReference> findByPipeline(PipelineId pipelineId);
+	/** Returns Jobs in step order for one pipeline identity and repository revision. */
+	List<PipelineJobReference> findByPipeline(PipelineId pipelineId, RepositoryReference source);
 
 	/** Returns pipeline Jobs for a repository, ordered by creation time and step. */
 	List<PipelineJobReference> findByRepository(URI location);

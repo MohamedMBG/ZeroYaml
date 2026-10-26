@@ -127,9 +127,11 @@ class JdbcJobStore implements JobStore {
 			throw new IllegalStateException("Job " + job.id().value() + " already has another definition");
 		}
 		if (runId != null) {
+			// A changed plan may move an unchanged step without changing its Job identity.
 			jdbc.sql("""
 						UPDATE job SET pipeline_run_id = :runId, step_name = :stepName, step_position = :position
-						WHERE id = :id AND pipeline_run_id IS NULL
+						WHERE id = :id AND (pipeline_run_id IS NULL
+						    OR (pipeline_run_id = :runId AND step_name = :stepName))
 						""")
 					.param("runId", runId).param("stepName", stepName).param("position", position)
 					.param("id", job.id().value()).update();
@@ -187,10 +189,16 @@ class JdbcJobStore implements JobStore {
 	}
 
 	@Override
-	public List<PipelineJobReference> findByPipeline(PipelineId pipelineId) {
+	public List<PipelineJobReference> findByPipeline(PipelineId pipelineId, RepositoryReference source) {
 		Objects.requireNonNull(pipelineId, "pipelineId must not be null");
-		return jdbc.sql(REFERENCE_COLUMNS + "WHERE r.pipeline_id = :value ORDER BY r.created_at, j.step_position, j.id")
-				.param("value", pipelineId.value()).query(JdbcJobStore::toReference).list();
+		Objects.requireNonNull(source, "source must not be null");
+		return jdbc.sql(REFERENCE_COLUMNS + """
+				WHERE r.pipeline_id = :pipelineId AND r.repository_location = :location AND r.revision = :revision
+				ORDER BY j.step_position, j.id
+				""")
+				.param("pipelineId", pipelineId.value())
+				.param("location", source.location().toString()).param("revision", source.revision())
+				.query(JdbcJobStore::toReference).list();
 	}
 
 	@Override

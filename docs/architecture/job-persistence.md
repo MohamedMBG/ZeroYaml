@@ -9,10 +9,12 @@ empty until a matching step is recorded.
 `PipelineJobCreationService` still derives stable Job identities and uses
 `recordIfAbsent`. The database unique keys make redelivery idempotent across
 Control Plane restarts. A changed plan for the same revision can add new Jobs;
-earlier Jobs remain intact, as specified by issue #23. The run row groups these
-Jobs and does not claim a separate pipeline outcome. Issue #30 decides when to
-dispatch steps, and the later pipeline lifecycle work decides how to resolve
-superseded or stopped plans.
+earlier Jobs retain their definition and lifecycle state, as specified by issue
+#23. When unchanged steps move, their stored positions follow the latest
+recorded request for each step. The run row groups these Jobs and does not
+claim a separate pipeline outcome. Issue #30 decides when to dispatch steps,
+and the later pipeline lifecycle work decides how to resolve superseded or
+stopped plans.
 
 `JdbcJobStore.update` locks one Job row with `SELECT ... FOR UPDATE` and applies
 the core `Job` transition rules inside the same transaction. A rejected change
@@ -23,10 +25,11 @@ start, and completion times, the assigned Runner process, and structured
 failure code, message, and optional exit code. Timestamp values are truncated
 to PostgreSQL microsecond precision when written.
 
-`JobStore.find` looks up a Job by identity. `findByPipeline`,
-`findByRepository`, and `findBySource` return ordered step references for the
-first end-to-end scenario; each reference resolves to its current Job through
-`find`. These are application queries, not HTTP endpoints. Command arguments
+`JobStore.find` looks up a Job by identity. `findByPipeline` requires both the
+pipeline identity and repository revision so separate runs cannot mix. Along
+with `findByRepository` and `findBySource`, it returns ordered step references
+for the first end-to-end scenario; each reference resolves to its current Job
+through `find`. These are application queries, not HTTP endpoints. Command arguments
 are stored as JSON; logs and command output are not stored in these tables.
 Repository locations with URI user info, query, or fragment are refused before
 storage because they can carry credentials. The first scenario uses a plain
