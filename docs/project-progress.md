@@ -1,6 +1,6 @@
 # ZeroYAML Project Progress
 
-Last updated: 2026-10-26 (Phase 2: local PostgreSQL Job persistence work, issue #28)
+Last updated: 2026-10-26 (Phase 2: local workflow runbook refreshed against `main`, issue #32)
 
 Current phase: 2
 
@@ -65,7 +65,7 @@ The Runner Docker execution sandbox for issue #25 is merged into `main`. A Runne
 
 - Issue #28, Job and pipeline run persistence: pull request #277 adds a PostgreSQL Job store, a pipeline run grouping table, run/step lookups, and row-locked lifecycle updates. The existing in-memory store remains only for focused tests. `JobExecutionStatusRecorder` now records into PostgreSQL in the application context. Review follow-up preserves changed plans that reorder unchanged steps and scopes pipeline lookup to one repository revision. This work is not merged or released. See [`docs/architecture/job-persistence.md`](./architecture/job-persistence.md).
 - Local validation for #28 on 2026-10-26: the targeted PostgreSQL tests passed, and Control Plane `mvnw.cmd --batch-mode verify` passed 366 tests, including reordered-plan and same-pipeline-identity source isolation cases. An earlier clean run and incremental run failed because generated gRPC files disappeared during compilation; this intermittent local build issue remains a verification risk. No Runner or shared protocol files changed.
-- Issue #32, local end-to-end development workflow documentation: the runbook is merged into `main` through pull request #267, and the issue stays open. `docs/local-development-workflow.md` sequences infrastructure, Control Plane, Runner, signed push delivery, Job execution, and persistence checks. It still demonstrates two separate paths because the webhook does not yet call inference, Job creation, Runner selection, and dispatch (#30). Its steps and expected states need correction against the automated end-to-end test (#31) before #32 can close.
+- Issue #32, local end-to-end development workflow documentation: the runbook is merged into `main` through pull request #267, and the issue stays open. `docs/local-development-workflow.md` sequences infrastructure, Control Plane, Runner, signed push delivery, Job execution, and persistence checks. It still demonstrates two separate paths because the webhook does not yet call inference, Job creation, Runner selection, and dispatch (#30). A refresh against `main`, proposed on `docs/issue-32-refresh-local-workflow` and not yet merged, replaces the signed push payload that normalization (#20) now rejects with `400`, documents the required push fields and the tag and deletion cases, records Flyway's second migration, and adds a hand-recorded `QUEUED` Job so status reports can be followed through `RUNNING` to `SUCCEEDED` or `FAILED` in PostgreSQL (#28). Its steps and expected states still need correction against the automated end-to-end test (#31) before #32 can close.
 - The other Phase 2 child issues (#26, #29-#31) remain open.
 
 ## Roadmap
