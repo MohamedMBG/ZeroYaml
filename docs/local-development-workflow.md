@@ -49,7 +49,7 @@ its tests are on `main`, but no production code path invokes it.
 | Status reports move a recorded Job through `RUNNING` to `SUCCEEDED` or `FAILED` in PostgreSQL | Wired ([#27](https://github.com/MohamedMBG/ZeroYaml/issues/27), [#28](https://github.com/MohamedMBG/ZeroYaml/issues/28)) | [Section 8.2](#82-record-the-job-first-and-follow-its-state) |
 | Recorded Job state survives a Control Plane restart | Wired ([#28](https://github.com/MohamedMBG/ZeroYaml/issues/28)) | [Section 9](#persistence-checks) |
 | Job logs are streamed and captured | Not wired — [#26](https://github.com/MohamedMBG/ZeroYaml/issues/26) | [Section 9](#persistence-checks) |
-| Lifecycle events are published | Not wired — [#29](https://github.com/MohamedMBG/ZeroYaml/issues/29) | [Section 3](#3-prerequisites) |
+| Lifecycle events are published | Wired, off by default ([#29](https://github.com/MohamedMBG/ZeroYaml/issues/29)); only recorded Jobs produce events | [Section 9](#job-lifecycle-events) |
 | One push produces one executed pipeline | Not wired — [#30](https://github.com/MohamedMBG/ZeroYaml/issues/30) | [Section 9](#9-expected-states) |
 | An automated test covers the whole chain | Not wired — [#31](https://github.com/MohamedMBG/ZeroYaml/issues/31) | [Section 11](#11-automated-coverage) |
 
@@ -94,11 +94,10 @@ docker --version
 docker compose version
 ```
 
-`infra/compose.yaml` also defines Redis and Kafka. Neither has a consumer yet —
-the Control Plane declares no Redis or Kafka dependency — so this workflow
-starts PostgreSQL only. Lifecycle event publishing is tracked as
-[#29](https://github.com/MohamedMBG/ZeroYaml/issues/29) and is not on `main`
-yet.
+`infra/compose.yaml` also defines Redis and Kafka. This workflow starts
+PostgreSQL only. Redis has no consumer. Kafka is needed only for the optional
+Job lifecycle event stream, which is off by default; see
+[Job lifecycle events](#job-lifecycle-events).
 
 ## 4. Startup order
 
@@ -322,16 +321,19 @@ validation order and response contract are in
 
 Normalization reads these payload fields and nothing else:
 
-| Field | Requirement |
-| --- | --- |
-| `ref` | `refs/heads/<branch>` produces an event, `refs/tags/<tag>` is accepted without one, and any other ref is rejected |
-| `deleted` | A boolean |
-| `after` | The pushed commit, 40 or 64 hexadecimal characters |
-| `repository.owner.login`, `repository.name` | Non-blank strings |
-| `head_commit.timestamp` | An ISO-8601 time with an offset, such as `2026-10-26T10:00:00Z` |
+| Field | Read for | Requirement |
+| --- | --- | --- |
+| `ref` | Every push | A non-blank string |
+| `deleted` | Every push | A boolean |
+| `ref` (branch rule) | A non-deleted, non-tag push | `refs/heads/<branch>` with a valid branch name; any other ref is rejected |
+| `after` | A non-deleted branch push | The pushed commit, 40 or 64 hexadecimal characters |
+| `repository.owner.login`, `repository.name` | A non-deleted branch push | Non-blank strings |
+| `head_commit.timestamp` | A non-deleted branch push | An ISO-8601 time with an offset, such as `2026-10-26T10:00:00Z` |
 
-A tag push or a branch deletion is still answered `202`, but it has no commit
-to execute, so no event is produced.
+Normalization stops after `ref` and `deleted` when `deleted` is `true` or `ref`
+starts with `refs/tags/`. Such a push is answered `202` without an event, even
+when `after`, `repository`, or `head_commit` is missing, and a deletion is not
+checked against the branch rule, because neither case has a commit to execute.
 
 ### 7.1 Signed local delivery
 
@@ -690,9 +692,20 @@ terminal report is acknowledged with `failure_reason=non_zero_exit
 decision=applied job_state=failed`, and the row shows `FAILED` with failure
 code `NON_ZERO_EXIT` and exit code `3`.
 
-Rows inserted this way are local test data. Remove them with
-`DELETE FROM job;` when they are no longer needed, or discard the whole
-database as described in [Section 12](#12-shut-down).
+Rows inserted this way are local test data. Remove only the row this exercise
+inserted, from the shell that still holds its identifier, so Job history from
+other work in a reused database is kept:
+
+```powershell
+docker exec -i zeroyaml-postgres psql -U zeroyaml -d zeroyaml -c "DELETE FROM job WHERE id = '$jobId';"
+```
+
+```bash
+docker exec -i zeroyaml-postgres psql -U zeroyaml -d zeroyaml -c "DELETE FROM job WHERE id = '$job_id';"
+```
+
+Repeat it for each row inserted, such as the succeeded and the failed run, or
+discard the whole database as described in [Section 12](#12-shut-down).
 
 ## 9. Expected states
 
@@ -767,6 +780,68 @@ register again.
 Captured Job logs have no persistence check yet; log streaming is
 [#26](https://github.com/MohamedMBG/ZeroYaml/issues/26). Until then, command
 output is visible only in the Job container's own output.
+
+### Job lifecycle events
+
+The Control Plane can publish `job.accepted`, `job.started`, `job.succeeded`,
+and `job.failed` to the Kafka topic `zeroyaml.job-lifecycle.v1` after each
+transition is committed. Publication is off by default, and nothing in this
+workflow needs it. The envelope, key, and failure behavior are documented in
+[`job-lifecycle-events.md`](./architecture/job-lifecycle-events.md).
+
+The producer can be verified now against a real broker, using the same
+`apache/kafka:4.0.0` image as `infra/compose.yaml`, which Testcontainers
+starts:
+
+```powershell
+Push-Location control-plane
+.\mvnw.cmd --batch-mode test "-Dtest=KafkaJobLifecycleEventPublisherIntegrationTest"
+Pop-Location
+```
+
+To watch the stream from a running Control Plane, start the broker, enable
+publication in the Control Plane shell from [Section 4.2](#42-control-plane)
+before starting it, and attach the console consumer included in the image:
+
+```powershell
+docker compose -f .\infra\compose.yaml up -d kafka
+$env:ZEROYAML_JOB_EVENTS_ENABLED = 'true'
+# $env:ZEROYAML_KAFKA_BOOTSTRAP_SERVERS defaults to localhost:9092.
+
+docker exec -it zeroyaml-kafka /opt/kafka/bin/kafka-console-consumer.sh `
+  --bootstrap-server localhost:9092 --topic zeroyaml.job-lifecycle.v1 `
+  --from-beginning --property print.key=true
+```
+
+```bash
+docker compose -f ./infra/compose.yaml up -d kafka
+export ZEROYAML_JOB_EVENTS_ENABLED=true
+
+docker exec -it zeroyaml-kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 --topic zeroyaml.job-lifecycle.v1 \
+  --from-beginning --property print.key=true
+```
+
+The Control Plane logs `Publishing job lifecycle events to topic
+zeroyaml.job-lifecycle.v1` at startup. The topic is created on the first
+event, so until then the consumer may warn that the topic is unknown. Each
+line printed is the Job identity followed by one JSON envelope.
+
+An event is published only for a Job that the Control Plane records.
+[Section 8.1](#81-dispatch-an-unrecorded-job) records none, so it produces no
+event. [Section 8.2](#82-record-the-job-first-and-follow-its-state) records a
+`QUEUED` row by hand, so with publication enabled its applied running and
+terminal reports publish `job.started` and then `job.succeeded` or
+`job.failed`. `job.accepted` comes only from Job creation for a pipeline,
+which nothing calls until a push creates Jobs
+([#30](https://github.com/MohamedMBG/ZeroYaml/issues/30)). The Section 8.2
+stream has not been observed in a recorded manual run, so the integration test
+above remains the executable check.
+
+With publication enabled and Kafka stopped, the Control Plane still starts,
+acknowledges webhooks, and records reports. It logs
+`Failed to publish <type> event ...` once the producer gives up, which can
+take up to 30 s.
 
 ## 10. Troubleshooting
 
@@ -866,6 +941,7 @@ What the suites already cover, per step of this document:
 | `RunJob` validation, acceptance, and rejection | Runner `grpcserver` tests, including over the transport |
 | Container execution, cleanup, and result mapping | Runner `sandbox` tests; `TestDockerExecution*` for real containers |
 | Status reporting and reconciliation | Runner `jobstatus` tests; Control Plane `execution` tests |
+| Lifecycle event payloads, publish-after-commit, and producer failure handling | Control Plane `events` tests, including a Testcontainers Kafka broker; `JdbcJobStoreTest` for commit visibility |
 | A push through to an execution | Not covered — [#31](https://github.com/MohamedMBG/ZeroYaml/issues/31) |
 
 No automated test spans a push to an execution yet. The two halves in Sections
