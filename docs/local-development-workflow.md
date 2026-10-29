@@ -692,20 +692,10 @@ terminal report is acknowledged with `failure_reason=non_zero_exit
 decision=applied job_state=failed`, and the row shows `FAILED` with failure
 code `NON_ZERO_EXIT` and exit code `3`.
 
-Rows inserted this way are local test data. Remove only the row this exercise
-inserted, from the shell that still holds its identifier, so Job history from
-other work in a reused database is kept:
-
-```powershell
-docker exec -i zeroyaml-postgres psql -U zeroyaml -d zeroyaml -c "DELETE FROM job WHERE id = '$jobId';"
-```
-
-```bash
-docker exec -i zeroyaml-postgres psql -U zeroyaml -d zeroyaml -c "DELETE FROM job WHERE id = '$job_id';"
-```
-
-Repeat it for each row inserted, such as the succeeded and the failed run, or
-discard the whole database as described in [Section 12](#12-shut-down).
+Keep these rows for now. The restart check under
+[Persistence checks](#persistence-checks) reads them back, and
+[Removing the test Job rows](#removing-the-test-job-rows) deletes them once
+that check is done.
 
 ## 9. Expected states
 
@@ -776,6 +766,39 @@ the in-memory Runner registry, so the Runner from [Section 4.3](#43-runner)
 logs `msg="runner heartbeat reported unknown runner"` with `message="Runner
 local-runner is not registered"` from then on and must be restarted to
 register again.
+
+#### Removing the test Job rows
+
+Run this only after the Job restart check above, because it deletes the rows
+that check reads. Rows inserted in
+[Section 8.2](#82-record-the-job-first-and-follow-its-state) are local test
+data. Remove only those rows, so Job history from other work in a reused
+database is kept. Run the command from the shell that inserted the row, which
+still holds its identifier:
+
+```powershell
+docker exec -i zeroyaml-postgres psql -U zeroyaml -d zeroyaml -c "DELETE FROM job WHERE id = '$jobId';"
+```
+
+```bash
+docker exec -i zeroyaml-postgres psql -U zeroyaml -d zeroyaml -c "DELETE FROM job WHERE id = '$job_id';"
+```
+
+Each run of the Section 8.2 block replaces the identifier held in the shell, so
+the succeeded and the failed run leave only the last one there. List the rows
+inserted from the demo source, then set `$jobId` or `job_id` to each earlier
+identifier and repeat the delete:
+
+```powershell
+docker exec -i zeroyaml-postgres psql -U zeroyaml -d zeroyaml -c "SELECT id, status, created_at FROM job WHERE repository_location = 'file:///C:/zeroyaml-sources/demo';"
+```
+
+```bash
+docker exec -i zeroyaml-postgres psql -U zeroyaml -d zeroyaml -c "SELECT id, status, created_at FROM job WHERE repository_location = 'file://$HOME/zeroyaml-sources/demo';"
+```
+
+To discard every local row instead, remove the whole database as described in
+[Section 12](#12-shut-down).
 
 Captured Job logs have no persistence check yet; log streaming is
 [#26](https://github.com/MohamedMBG/ZeroYaml/issues/26). Until then, command
