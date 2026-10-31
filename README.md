@@ -55,6 +55,11 @@ Technology:
 - Docker
 - gRPC
 
+Runner job output can be delivered to the Control Plane through a dedicated
+mTLS endpoint with bounded capture and explicit completion metadata. See
+[Runner job logs](./docs/architecture/runner-job-logs.md) for configuration,
+ordering, and retention limits.
+
 ### Infrastructure
 
 The local development environment contains:
@@ -62,6 +67,14 @@ The local development environment contains:
 - PostgreSQL
 - Redis
 - Kafka
+
+## Runner log configuration
+
+Runner log delivery is disabled by default. Enabling it through the
+`ZEROYAML_JOB_LOGS_*` settings overrides the daemon default log driver for Job
+containers with bounded `local` logging so Engine log following remains readable
+and bounded. Disabled delivery preserves the daemon log driver and starts no
+log follower.
 
 ## Repository structure
 

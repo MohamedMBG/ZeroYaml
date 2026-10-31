@@ -28,11 +28,24 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/MohamedMBG/ZeroYaml/runner/internal/joblogs"
 )
 
 // defaultCleanupTimeout bounds each removal command. Removal runs after the
 // execution context may already be done, so it needs a budget of its own.
 const defaultCleanupTimeout = 30 * time.Second
+
+// defaultLogDrainTimeout bounds log delivery that is still running after the
+// Job command has exited. It leaves room for a few slow chunk acknowledgments
+// without letting delivery hold the container until the execution deadline.
+const defaultLogDrainTimeout = 10 * time.Second
+
+// maxLogCloseTimeout caps the final log flush after a cancellation. The bound is
+// also limited to a fifth of the Runner shutdown budget, so the log close never
+// consumes the time reserved for container cleanup and the terminal status
+// report, even with a short ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT.
+const maxLogCloseTimeout = time.Second
 
 // Outcome categorizes how an execution ended.
 type Outcome string
@@ -79,15 +92,30 @@ type dockerFunc func(ctx context.Context, args ...string) (string, error)
 // Sandbox runs Jobs in Docker containers. It holds no per-execution state, so
 // one instance may run concurrent executions.
 type Sandbox struct {
-	docker         dockerFunc
-	newID          func() (string, error)
-	cleanupTimeout time.Duration
-	logger         *slog.Logger
+	docker          dockerFunc
+	stream          dockerStreamFunc
+	logs            joblogs.Sink
+	newID           func() (string, error)
+	cleanupTimeout  time.Duration
+	logCloseTimeout time.Duration
+	logDrainTimeout time.Duration
+	logger          *slog.Logger
 }
 
-// New creates a Sandbox that drives the Docker CLI found at dockerBinary.
-func New(dockerBinary string, logger *slog.Logger) *Sandbox {
-	return newSandbox(cliDocker(dockerBinary), newExecutionID, defaultCleanupTimeout, logger)
+// New creates a Sandbox that drives the Docker CLI found at dockerBinary and
+// delivers bounded Job output to logs. A nil sink disables log following.
+// shutdownTimeout is the Runner's shutdown budget; it bounds the final log
+// flush after a cancellation.
+func New(dockerBinary string, logger *slog.Logger, logs joblogs.Sink, shutdownTimeout time.Duration) *Sandbox {
+	s := newSandbox(cliDocker(dockerBinary), newExecutionID, defaultCleanupTimeout, logger)
+	s.stream = cliDockerStream(dockerBinary)
+	s.logs = logs
+	s.logCloseTimeout = logCloseTimeout(shutdownTimeout)
+	return s
+}
+
+func logCloseTimeout(shutdownTimeout time.Duration) time.Duration {
+	return min(maxLogCloseTimeout, shutdownTimeout/5)
 }
 
 func newSandbox(
@@ -97,10 +125,12 @@ func newSandbox(
 	logger *slog.Logger,
 ) *Sandbox {
 	return &Sandbox{
-		docker:         docker,
-		newID:          newID,
-		cleanupTimeout: cleanupTimeout,
-		logger:         logger,
+		docker:          docker,
+		newID:           newID,
+		cleanupTimeout:  cleanupTimeout,
+		logCloseTimeout: maxLogCloseTimeout,
+		logDrainTimeout: defaultLogDrainTimeout,
+		logger:          logger,
 	}
 }
 
@@ -111,21 +141,35 @@ func newSandbox(
 // Cancelling ctx stops the execution and yields OutcomeCancelled; exceeding
 // spec.Timeout yields OutcomeTimedOut.
 func (s *Sandbox) Run(ctx context.Context, spec Spec) Result {
+	runCtx, cancel := context.WithTimeout(ctx, spec.Timeout)
+	defer cancel()
+	capture := joblogs.NewCapture(runCtx, spec.JobID, s.logs)
+	interrupted := false
+	defer func() {
+		closeCtx := context.WithoutCancel(ctx)
+		if ctx.Err() != nil {
+			var closeCancel context.CancelFunc
+			closeCtx, closeCancel = context.WithTimeout(closeCtx, s.logCloseTimeout)
+			defer closeCancel()
+		}
+		if err := capture.Close(closeCtx, interrupted); err != nil {
+			s.logger.WarnContext(ctx, "job output final marker was not acknowledged")
+		}
+	}()
 	executionID, err := s.newID()
 	if err != nil {
+		interrupted = true
 		return Result{Outcome: OutcomeExecutionError, Message: fmt.Sprintf("generate execution identifier: %v", err)}
 	}
 
-	runCtx, cancel := context.WithTimeout(ctx, spec.Timeout)
-	defer cancel()
-
-	result := s.run(ctx, runCtx, executionID, spec)
+	result := s.run(ctx, runCtx, executionID, spec, capture)
 	result.ExecutionID = executionID
+	interrupted = interrupted || result.Outcome == OutcomeCancelled || result.Outcome == OutcomeTimedOut || result.Outcome == OutcomeExecutionError
 
 	return result
 }
 
-func (s *Sandbox) run(ctx context.Context, runCtx context.Context, executionID string, spec Spec) Result {
+func (s *Sandbox) run(ctx context.Context, runCtx context.Context, executionID string, spec Spec, capture *joblogs.Capture) Result {
 	names := newResourceNames(executionID)
 
 	if _, err := s.docker(runCtx, volumeCreateArgs(names)...); err != nil {
@@ -139,7 +183,7 @@ func (s *Sandbox) run(ctx context.Context, runCtx context.Context, executionID s
 	}
 	defer s.remove(ctx, executionID, "workspace volume", "volume", "rm", "--force", names.volume)
 
-	checkoutExitCode, err := s.runContainer(ctx, runCtx, executionID, names.checkout, checkoutCreateArgs(spec, names))
+	checkoutExitCode, err := s.runContainer(ctx, runCtx, executionID, names.checkout, checkoutCreateArgs(spec, names), nil)
 	if err != nil {
 		return s.interrupted(ctx, runCtx, spec, "source checkout", err)
 	}
@@ -153,7 +197,7 @@ func (s *Sandbox) run(ctx context.Context, runCtx context.Context, executionID s
 		}
 	}
 
-	exitCode, err := s.runContainer(ctx, runCtx, executionID, names.job, jobCreateArgs(spec, names))
+	exitCode, err := s.runContainer(ctx, runCtx, executionID, names.job, jobCreateArgs(spec, names, s.logs != nil), capture)
 	if err != nil {
 		return s.interrupted(ctx, runCtx, spec, "job command", err)
 	}
@@ -178,6 +222,7 @@ func (s *Sandbox) runContainer(
 	executionID string,
 	name string,
 	createArgs []string,
+	capture *joblogs.Capture,
 ) (int32, error) {
 	output, err := s.docker(runCtx, createArgs...)
 	if err != nil {
@@ -199,8 +244,34 @@ func (s *Sandbox) runContainer(
 	if _, err := s.docker(runCtx, "start", containerID); err != nil {
 		return 0, err
 	}
+	// Observe the command exit independently of log delivery, which can still
+	// be stalled when a successful command reaches its execution deadline.
+	type waitResult struct {
+		output string
+		err    error
+	}
+	wait := make(chan waitResult, 1)
+	go func() {
+		output, err := s.docker(runCtx, "wait", containerID)
+		wait <- waitResult{output, err}
+	}()
+	var followed chan error
+	followCtx, stopFollowing := context.WithCancel(runCtx)
+	defer stopFollowing()
+	if s.logs != nil && capture != nil && s.stream != nil {
+		// Following after start also reads output from a command that already
+		// exited. Checkout output is excluded because it can contain credentials.
+		followed = make(chan error, 1)
+		go func() {
+			followed <- s.stream(followCtx, capture.Writer(joblogs.Stdout), capture.Writer(joblogs.Stderr), containerID)
+		}()
+	}
 
-	output, err = s.docker(runCtx, "wait", containerID)
+	result := <-wait
+	if followed != nil {
+		s.drainLogs(ctx, executionID, followed, stopFollowing, capture)
+	}
+	output, err = result.output, result.err
 	if err != nil {
 		return 0, err
 	}
@@ -211,6 +282,36 @@ func (s *Sandbox) runContainer(
 	}
 
 	return int32(exitCode), nil
+}
+
+// drainLogs waits for the follower after the command has exited. Slow but
+// successful delivery must not hold the container, the concurrency slot, and
+// the terminal status report until spec.Timeout, so the drain is bounded and
+// output still unread when the bound expires is reported as incomplete.
+func (s *Sandbox) drainLogs(
+	ctx context.Context,
+	executionID string,
+	followed <-chan error,
+	stopFollowing context.CancelFunc,
+	capture *joblogs.Capture,
+) {
+	timer := time.NewTimer(s.logDrainTimeout)
+	defer timer.Stop()
+	var err error
+	select {
+	case err = <-followed:
+	case <-timer.C:
+		capture.StopDelivery()
+		stopFollowing()
+		<-followed
+		s.logger.WarnContext(ctx, "job log drain exceeded its bound", slog.String("execution_id", executionID),
+			slog.Duration("log_drain_timeout", s.logDrainTimeout))
+		return
+	}
+	if err != nil {
+		capture.MarkIncomplete()
+		s.logger.WarnContext(ctx, "job log capture interrupted", slog.String("execution_id", executionID))
+	}
 }
 
 // interrupted classifies an execution that stopped before a command exited.

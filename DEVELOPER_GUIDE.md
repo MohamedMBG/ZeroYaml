@@ -634,8 +634,9 @@ reachable, and it has a free execution slot; see
 
 ### Runner-facing gRPC endpoint
 
-The Control Plane serves every gRPC service a Runner calls on one endpoint, so a
-Runner is configured with a single Control Plane address:
+The Control Plane shares one endpoint for registration, heartbeats, and execution
+status. Optional Job log ingress uses a separate mTLS endpoint; configuration is
+listed in [Runner job logs](./docs/architecture/runner-job-logs.md).
 
 | Property | Default | Purpose |
 | --- | --- | --- |
@@ -643,8 +644,7 @@ Runner is configured with a single Control Plane address:
 | `zeroyaml.registration.heartbeat-timeout` | `15s` | Time without a heartbeat before a Runner is reported `UNAVAILABLE` |
 
 The setting keeps its `zeroyaml.registration` prefix so deployed configuration
-and Runner environment variables stay valid as services are added to the
-endpoint.
+and Runner environment variables stay valid for registration and status reports.
 
 `JobExecutionStatusService.ReportJobStatus` is how a Runner reports what one
 execution did. The Control Plane owns authoritative Job state: it validates
@@ -836,6 +836,34 @@ report when an accepted Job starts and one terminal report when it ends.
 
 ### Runner Docker execution
 
+Job stdout and stderr can be delivered through `JobLogService.AppendJobLog`
+to a dedicated mTLS listener, disabled until certificates are configured on both
+services. The existing registration/status endpoint does not serve logs. Capture
+retains at most 1 MiB or 256 data chunks per Job, followed by a final marker identifying truncation
+or interruption. Delivery uses `ZEROYAML_RUNNER_STATUS_REPORT_TIMEOUT` for each
+call; failures do not change execution status. The Control Plane retains at
+most 32 Jobs' logs in memory through `JobLogStore.snapshot`. Finished output or
+streams idle for at least five minutes can be evicted; full retention with recent
+active output refuses new Jobs' logs. Final markers after retention loss are
+accepted and stored as incomplete; records that would open a new stream for a
+terminal Job are refused. Restart
+loses all logs. There is no REST/UI log viewer. Raw command bytes are
+excluded from operational logs; arbitrary secrets printed by a command are
+not automatically redacted. Job output is read from Docker Engine frames over
+`docker system dial-stdio`; stdout/stderr observations are coalesced into one
+pending 4 KiB buffer, flushed when full, on a stream switch, on a write after the
+pending bytes have waited one minute, or at close. Docker
+CLI diagnostics remain separate and are discarded. Enabling delivery overrides
+the daemon default log driver for Job containers with bounded readable `local`
+logs; disabled delivery preserves that default and starts no follower. After the
+command exits, log delivery has ten seconds to drain before the remaining output
+is marked incomplete, so slow delivery cannot hold the container or the terminal
+status report. A cancelled dispatch bounds pending flush and final delivery
+together to one second, or a fifth of `ZEROYAML_RUNNER_SHUTDOWN_TIMEOUT` if that
+is shorter, to reserve shutdown time for terminal status reporting.
+An invalid `ZEROYAML_JOB_LOGS_ADDRESS` fails Runner startup.
+See [Runner job logs](./docs/architecture/runner-job-logs.md).
+
 `runner/internal/sandbox` runs every accepted Job in Docker; the Runner never
 executes a Job command on its host. At startup the Runner probes the Docker
 daemon with `docker version`. If the daemon does not answer, the Runner keeps
@@ -863,7 +891,8 @@ Pop-Location
 ```
 
 The Go protobuf bindings can be regenerated from the repository root after
-installing the pinned `protoc-gen-go` and `protoc-gen-go-grpc` tool versions:
+installing `protoc` v36.0, `protoc-gen-go` v1.36.12, and
+`protoc-gen-go-grpc` v1.6.2 (the checked-in Go bindings' pinned versions):
 
 ```powershell
 protoc -I proto `
