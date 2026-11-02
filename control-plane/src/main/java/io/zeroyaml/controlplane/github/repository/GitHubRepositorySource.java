@@ -5,6 +5,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.net.http.HttpResponse.BodySubscriber;
 import java.net.http.HttpResponse.BodySubscribers;
 import java.nio.ByteBuffer;
@@ -105,8 +106,7 @@ class GitHubRepositorySource implements RepositorySource {
 		}
 		catch (TimeoutException ex) {
 			exchange.cancel(true);
-			throw new RepositorySnapshotUnavailableException(
-					"GitHub API did not answer for " + repository.fullName() + " within " + properties.getApiTimeout(), ex);
+			throw notAnswered(repository, ex);
 		}
 		catch (InterruptedException ex) {
 			exchange.cancel(true);
@@ -120,10 +120,19 @@ class GitHubRepositorySource implements RepositorySource {
 						"GitHub API tree response for " + repository.fullName() + " exceeds "
 								+ properties.getMaxTreeResponseSize(), ex.getCause());
 			}
+			// The client's own request or connect timeout can fire before the wait above; both mean the same thing.
+			if (ex.getCause() instanceof HttpTimeoutException) {
+				throw notAnswered(repository, ex.getCause());
+			}
 			throw new RepositorySnapshotUnavailableException(
 					"GitHub API is unreachable for " + repository.fullName() + ": "
 							+ ex.getCause().getClass().getSimpleName(), ex.getCause());
 		}
+	}
+
+	private RepositorySnapshotUnavailableException notAnswered(RepositoryIdentity repository, Throwable cause) {
+		return new RepositorySnapshotUnavailableException(
+				"GitHub API did not answer for " + repository.fullName() + " within " + properties.getApiTimeout(), cause);
 	}
 
 	private RepositorySnapshot toSnapshot(byte[] body, RepositoryIdentity repository) {

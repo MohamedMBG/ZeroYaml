@@ -89,6 +89,10 @@ public class GitHubRepositoryProperties {
 		this.locationTemplate = locationTemplate;
 	}
 
+	/**
+	 * Rejects unusable settings at startup. URL and template values are never
+	 * echoed in a failure, because a rejected value may carry a credential.
+	 */
 	@PostConstruct
 	void validate() {
 		validateApiBaseUrl();
@@ -117,7 +121,7 @@ public class GitHubRepositoryProperties {
 		if (!valid) {
 			throw new IllegalStateException(
 					"zeroyaml.github.repository.api-base-url must be an https URL without credentials, query, or "
-							+ "fragment (http is accepted only for localhost), got " + url);
+							+ "fragment (http is accepted only for localhost)");
 		}
 	}
 
@@ -125,15 +129,15 @@ public class GitHubRepositoryProperties {
 		if (locationTemplate == null || !locationTemplate.contains(OWNER_PLACEHOLDER)
 				|| !locationTemplate.contains(NAME_PLACEHOLDER)) {
 			throw new IllegalStateException(
-					"zeroyaml.github.repository.location-template must contain {owner} and {name}, got " + locationTemplate);
+					"zeroyaml.github.repository.location-template must contain {owner} and {name}");
 		}
 		final URI sample;
 		try {
 			sample = URI.create(locationFor("owner", "name"));
 		}
 		catch (IllegalArgumentException ex) {
-			throw new IllegalStateException(
-					"zeroyaml.github.repository.location-template is not a valid URI template: " + locationTemplate, ex);
+			// The parser's message, and so the cause, repeats the input; neither is attached.
+			throw new IllegalStateException("zeroyaml.github.repository.location-template is not a valid URI template");
 		}
 		var scheme = sample.getScheme() == null ? "" : sample.getScheme().toLowerCase(Locale.ROOT);
 		if (!sample.isAbsolute() || !LOCATION_SCHEMES.contains(scheme) || sample.getRawUserInfo() != null
@@ -141,7 +145,7 @@ public class GitHubRepositoryProperties {
 			// Locations are stored with every Job and sent to the Runner, so they must not carry credentials.
 			throw new IllegalStateException(
 					"zeroyaml.github.repository.location-template must produce an https, http, or file URI without "
-							+ "credentials, query, or fragment, got " + locationTemplate);
+							+ "credentials, query, or fragment");
 		}
 	}
 
