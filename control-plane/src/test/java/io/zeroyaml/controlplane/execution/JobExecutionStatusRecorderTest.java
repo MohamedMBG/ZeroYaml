@@ -224,6 +224,39 @@ class JobExecutionStatusRecorderTest {
 	}
 
 	@Test
+	void refusesAReportThatWouldClaimAQueuedJobNeverDispatchedToARunner() {
+		var job = Job.create(JobId.newId(), repository(), execution(), CREATED_AT);
+		job.queue(CREATED_AT.plusSeconds(1));
+		jobs.add(job);
+
+		var running = recorder.record(JobStatusReport.running(job.id(), RUNNER, STARTED_AT));
+		var terminal = recorder.record(JobStatusReport.succeeded(job.id(), RUNNER, STARTED_AT, COMPLETED_AT, 0));
+
+		assertEquals(JobStatusReportDecision.CONFLICT, running.decision());
+		assertEquals(JobStatusReportDecision.CONFLICT, terminal.decision());
+		assertTrue(running.message().contains("was not dispatched to any runner"));
+		assertEquals(JobStatus.QUEUED, job.status());
+		assertTrue(job.runnerAssignment().isEmpty());
+		assertTrue(published.isEmpty());
+	}
+
+	@Test
+	void tellsTheCompletionListenerOnlyAboutAppliedTerminalTransitions() {
+		var completed = new CopyOnWriteArrayList<JobId>();
+		var notifying = new JobExecutionStatusRecorder(jobs, published::add, completed::add);
+		var job = queuedJob();
+
+		notifying.record(JobStatusReport.running(job.id(), RUNNER, STARTED_AT));
+		assertTrue(completed.isEmpty());
+
+		var report = JobStatusReport.succeeded(job.id(), RUNNER, STARTED_AT, COMPLETED_AT, 0);
+		notifying.record(report);
+		notifying.record(report);
+
+		assertEquals(List.of(job.id()), completed);
+	}
+
+	@Test
 	void refusesAReportForAJobThatWasNeverQueued() {
 		var job = Job.create(JobId.newId(), repository(), execution(), CREATED_AT);
 		jobs.add(job);
@@ -394,6 +427,7 @@ class JobExecutionStatusRecorderTest {
 	private Job queuedJob() {
 		var job = Job.create(JobId.newId(), repository(), execution(), CREATED_AT);
 		job.queue(CREATED_AT.plusSeconds(1));
+		job.assign(RUNNER);
 		jobs.add(job);
 
 		return job;

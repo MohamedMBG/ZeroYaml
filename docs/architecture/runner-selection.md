@@ -5,8 +5,9 @@ the application-facing policy boundary, and `HealthyRunnerSelector` chooses the
 eligible Runner with the lexicographically smallest `runnerId`.
 
 The code lives in `io.zeroyaml.controlplane.scheduling`. This change implements
-the selection decision for issue #24; no production caller connects it to Job
-creation or dispatch yet.
+the selection decision for issue #24. Pipeline orchestration (#30) calls it
+before each step is dispatched; see
+[Pipeline orchestration](./pipeline-orchestration.md).
 
 ## Eligibility
 
@@ -61,17 +62,17 @@ and recovery remain issue #271.
 
 `JobDispatchContext` records the selected identity only. The existing
 `RunnerClient.dispatchJob(Job)` still calls the single configured
-`zeroyaml.runner.*` endpoint and does not consume that context. There are no
+`zeroyaml.runner.*` endpoint. Orchestration stores the selected identity as the
+Job's assignment and compares it with the acknowledgment. There are no
 target fields or target checks added to `RunJob`, and no changes to heartbeat or
 status-report contracts.
 
 With multiple registered Runners, the selected process can differ from the one
-behind the configured endpoint. The selector must therefore remain disconnected
-from production dispatch until separate coordination work supplies per-Runner
-routing and enforces the assignment on both acknowledgments and status reports.
-Issue #23 creates executable Jobs; it explicitly excludes Runner selection and
-gRPC dispatch. Joining creation, selection, and dispatch belongs to the later
-end-to-end coordination work (#30).
+behind the configured endpoint. Orchestration (#30) therefore records the
+selected assignment before `RunJob` is sent and enforces it on both sides: an
+acknowledgment from any other Runner process cancels the Job, and status
+reports from any other process are a `CONFLICT`. Routing to several Runner
+endpoints needs its own issue.
 
 ## Limits
 

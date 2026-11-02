@@ -98,6 +98,7 @@ public final class Job {
 		return Optional.ofNullable(completedAt);
 	}
 
+	/** Returns the Runner process the Job was dispatched to, recorded by {@link #assign} or {@link #start}. */
 	public Optional<RunnerAssignment> runnerAssignment() {
 		return Optional.ofNullable(runnerAssignment);
 	}
@@ -120,10 +121,36 @@ public final class Job {
 	}
 
 	/**
+	 * Binds a queued Job to the Runner process it is about to be dispatched to.
+	 *
+	 * <p>The assignment is recorded before dispatch because a Runner may report
+	 * the start of execution before its dispatch acknowledgment arrives. Once set,
+	 * it is the only process whose status reports and log writes are attributed to
+	 * this Job, and it never changes.</p>
+	 *
+	 * @throws IllegalStateException if the Job is not queued or is already assigned
+	 */
+	public void assign(RunnerAssignment assignment) {
+		Objects.requireNonNull(assignment, "assignment must not be null");
+		if (status != JobStatus.QUEUED) {
+			throw new IllegalStateException("Only a queued Job can be assigned, but job " + id.value() + " is " + status);
+		}
+		if (runnerAssignment != null) {
+			throw new IllegalStateException("Job " + id.value() + " is already assigned");
+		}
+		this.runnerAssignment = assignment;
+	}
+
+	/**
 	 * Starts a queued Job on the Runner process selected by the application layer.
+	 *
+	 * @throws IllegalStateException if the Job is assigned to another Runner process
 	 */
 	public void start(RunnerAssignment assignment, Instant startedAt) {
 		Objects.requireNonNull(assignment, "assignment must not be null");
+		if (runnerAssignment != null && !runnerAssignment.equals(assignment)) {
+			throw new IllegalStateException("Job " + id.value() + " is assigned to another runner instance");
+		}
 		transitionTo(JobStatus.RUNNING, startedAt);
 		this.runnerAssignment = assignment;
 		this.startedAt = startedAt;

@@ -12,8 +12,8 @@ Control Plane restarts. A changed plan for the same revision can add new Jobs;
 earlier Jobs retain their definition and lifecycle state, as specified by issue
 #23. When unchanged steps move, their stored positions follow the latest
 recorded request for each step. The run row groups these Jobs and does not
-claim a separate pipeline outcome. Issue #30 decides when to dispatch steps,
-and the later pipeline lifecycle work decides how to resolve superseded or
+claim a separate pipeline outcome. Pipeline orchestration (#30) dispatches the steps
+in order; see [Pipeline orchestration](./pipeline-orchestration.md). The later pipeline lifecycle work decides how to resolve superseded or
 stopped plans.
 
 `JdbcJobStore.update` locks one Job row with `SELECT ... FOR UPDATE` and applies
@@ -22,7 +22,10 @@ or thrown callback rolls back. Runner status reports still pass through
 `JobExecutionStatusRecorder`, which reconciles duplicate, late, and conflicting
 reports before a change is committed. PostgreSQL retains creation, queue,
 start, and completion times, the assigned Runner process, and structured
-failure code, message, and optional exit code. Timestamp values are truncated
+failure code, message, and optional exit code. `V3__allow_job_assignment_before_start.sql`
+lets a queued or cancelled Job keep the assignment recorded at dispatch. A start
+time still requires an assignment, a Runner ID still requires an instance ID,
+and a `CREATED` Job still has none. Timestamp values are truncated
 to PostgreSQL microsecond precision when written.
 
 `JobStore.find` looks up a Job by identity. `findByPipeline` requires both the

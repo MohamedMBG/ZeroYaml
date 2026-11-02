@@ -706,6 +706,27 @@ The validation order, the signature rules, the response body, and the hand-off
 contract are documented in
 [`docs/architecture/github-webhook-ingress.md`](./docs/architecture/github-webhook-ingress.md).
 
+### Pipeline orchestration
+
+A verified branch push for a connected, active repository starts the first
+end-to-end scenario. The Control Plane reads the commit's root file listing
+through the GitHub Git Trees API, infers the pipeline, records its Jobs, and
+dispatches the steps to the selected Runner one after another.
+
+| Property | Environment variable | Default | Purpose |
+| --- | --- | --- | --- |
+| `zeroyaml.github.repository.api-base-url` | `ZEROYAML_GITHUB_API_BASE_URL` | `https://api.github.com` | GitHub REST API base URL; plain `http` only for a loopback host |
+| `zeroyaml.github.repository.api-token` | `ZEROYAML_GITHUB_API_TOKEN` | none | Optional read-only token for private repositories; never stored in a tracked file |
+| `zeroyaml.github.repository.api-timeout` | - | `10s` | Bound on one whole listing exchange, at most `1m` |
+| `zeroyaml.github.repository.max-tree-response-size` | - | `1MB` | Largest accepted listing body, at most `32MB` |
+| `zeroyaml.github.repository.location-template` | `ZEROYAML_GITHUB_REPOSITORY_LOCATION_TEMPLATE` | `https://github.com/{owner}/{name}.git` | Checkout location sent to the Runner |
+
+The Maven scenario runs in the Runner's Job image. The default `alpine:3.22`
+has no JDK, so set `ZEROYAML_RUNNER_JOB_IMAGE` to a pinned image that provides
+one. When pipeline work is at capacity, a push is answered `503` so GitHub can
+redeliver it. Step order, dispatch outcomes, and limits are documented in
+[`docs/architecture/pipeline-orchestration.md`](./docs/architecture/pipeline-orchestration.md).
+
 ### Control Plane database
 
 The Control Plane stores connected repository metadata in PostgreSQL. Flyway

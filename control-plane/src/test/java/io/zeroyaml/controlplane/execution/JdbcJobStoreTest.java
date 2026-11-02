@@ -26,6 +26,7 @@ import org.springframework.boot.testcontainers.context.ImportTestcontainers;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -99,7 +100,7 @@ class JdbcJobStoreTest {
 		var success = creation.jobs().get(0).jobId();
 		var failure = creation.jobs().get(1).jobId();
 		for (var id : List.of(success, failure)) {
-			store.update(id, job -> { job.queue(NOW.plusSeconds(1)); return job.status(); });
+			store.update(id, job -> { job.queue(NOW.plusSeconds(1)); job.assign(RUNNER); return job.status(); });
 		}
 		var recorder = new JobExecutionStatusRecorder(store, event -> { });
 		for (var id : List.of(success, failure)) {
@@ -126,6 +127,30 @@ class JdbcJobStoreTest {
 		assertEquals("NON_ZERO_EXIT", failed.failure().orElseThrow().code());
 		assertEquals("Command exited with status 7", failed.failure().orElseThrow().message());
 		assertEquals(7, failed.failure().orElseThrow().exitCode());
+	}
+
+	@Test
+	void dispatchAssignmentOfAQueuedOrCancelledJobSurvivesANewStoreInstance() {
+		var creation = new PipelineJobCreationService(store, event -> { }, Clock.fixed(NOW, ZoneOffset.UTC))
+				.createJobs(pipeline(SOURCE));
+		var queued = creation.jobs().get(0).jobId();
+		var cancelled = creation.jobs().get(1).jobId();
+		for (var id : List.of(queued, cancelled)) {
+			store.update(id, job -> { job.queue(NOW.plusSeconds(1)); job.assign(RUNNER); return job.status(); });
+		}
+		store.update(cancelled, job -> { job.cancel(NOW.plusSeconds(2)); return job.status(); });
+
+		var restoredQueued = freshStore().find(queued).orElseThrow();
+		var restoredCancelled = freshStore().find(cancelled).orElseThrow();
+
+		assertEquals(JobStatus.QUEUED, restoredQueued.status());
+		assertEquals(RUNNER, restoredQueued.runnerAssignment().orElseThrow());
+		assertTrue(restoredQueued.startedAt().isEmpty());
+		assertEquals(JobStatus.CANCELLED, restoredCancelled.status());
+		assertEquals(RUNNER, restoredCancelled.runnerAssignment().orElseThrow());
+		assertThrows(DataIntegrityViolationException.class, () -> jdbc.sql(
+				"UPDATE job SET runner_id = 'runner-2', runner_instance_id = NULL WHERE id = :id")
+				.param("id", queued.value()).update());
 	}
 
 	@Test
@@ -241,7 +266,7 @@ class JdbcJobStoreTest {
 	void concurrentTerminalReportsCommitOneOutcome() throws Exception {
 		var id = new PipelineJobCreationService(store, event -> { }, Clock.fixed(NOW, ZoneOffset.UTC))
 				.createJobs(pipeline(SOURCE)).jobs().get(0).jobId();
-		store.update(id, job -> { job.queue(NOW.plusSeconds(1)); return job.status(); });
+		store.update(id, job -> { job.queue(NOW.plusSeconds(1)); job.assign(RUNNER); return job.status(); });
 		var report = JobStatusReport.succeeded(id, RUNNER, NOW.plusSeconds(2), NOW.plusSeconds(3), 0);
 		var start = new CyclicBarrier(2);
 		var executor = Executors.newFixedThreadPool(2);
@@ -273,7 +298,7 @@ class JdbcJobStoreTest {
 				.join());
 		var id = new PipelineJobCreationService(store, events, Clock.fixed(NOW, ZoneOffset.UTC))
 				.createJobs(pipeline(SOURCE)).jobs().get(0).jobId();
-		store.update(id, job -> { job.queue(NOW.plusSeconds(1)); return job.status(); });
+		store.update(id, job -> { job.queue(NOW.plusSeconds(1)); job.assign(RUNNER); return job.status(); });
 
 		var recorder = new JobExecutionStatusRecorder(store, events);
 		recorder.record(JobStatusReport.running(id, RUNNER, NOW.plusSeconds(2)));

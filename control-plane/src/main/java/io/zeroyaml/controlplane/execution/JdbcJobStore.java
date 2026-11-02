@@ -230,9 +230,13 @@ class JdbcJobStore implements JobStore {
 		if (status != JobStatus.CREATED && fromColumn(row, "queued_at") != null) {
 			job.queue(fromColumn(row, "queued_at"));
 		}
+		var assignment = row.getString("runner_id") == null ? null
+				: new RunnerAssignment(row.getString("runner_id"), row.getString("runner_instance_id"));
+		if (assignment != null && job.status() == JobStatus.QUEUED) {
+			job.assign(assignment);
+		}
 		if (fromColumn(row, "started_at") != null) {
-			job.start(new RunnerAssignment(row.getString("runner_id"), row.getString("runner_instance_id")),
-					fromColumn(row, "started_at"));
+			job.start(assignment, fromColumn(row, "started_at"));
 		}
 		if (status == JobStatus.SUCCEEDED) {
 			job.succeed(fromColumn(row, "completed_at"), row.getObject("exit_code", Integer.class));

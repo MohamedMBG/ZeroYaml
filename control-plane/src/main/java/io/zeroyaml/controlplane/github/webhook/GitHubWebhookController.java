@@ -35,7 +35,10 @@ import io.zeroyaml.controlplane.github.webhook.GitHubWebhookResponse.Outcome;
  *       for an invalid envelope;</li>
  *   <li>{@code 401 Unauthorized} with outcome {@code REJECTED} when the
  *       {@code X-Hub-Signature-256} HMAC is missing, malformed, or does not match
- *       the configured secret.</li>
+ *       the configured secret;</li>
+ *   <li>the status a handler raises through {@link GitHubWebhookRejectedException},
+ *       with outcome {@code REJECTED}, for example {@code 503} when pipeline work
+ *       is at capacity.</li>
  * </ul>
  */
 @RestController

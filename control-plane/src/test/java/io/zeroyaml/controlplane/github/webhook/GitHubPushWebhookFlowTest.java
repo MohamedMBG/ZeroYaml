@@ -1,5 +1,7 @@
 package io.zeroyaml.controlplane.github.webhook;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -8,21 +10,29 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.RejectedExecutionException;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.json.JsonMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+
+import io.zeroyaml.controlplane.domain.event.RepositoryPushEvent;
+import io.zeroyaml.controlplane.orchestration.RepositoryPushEventHandler;
 
 /** Request-level check of signature verification followed by push normalization. */
 @WebMvcTest(GitHubWebhookController.class)
@@ -42,6 +52,15 @@ class GitHubPushWebhookFlowTest {
 	@Autowired
 	private JsonMapper jsonMapper;
 
+	@Autowired
+	private RecordingPushEventHandler pushEvents;
+
+	@BeforeEach
+	void resetPushEvents() {
+		pushEvents.handed.clear();
+		pushEvents.atCapacity = false;
+	}
+
 	@Test
 	void acceptsAndNormalizesASignedBranchPushFixture() throws Exception {
 		var payload = fixture("push-main.json");
@@ -50,6 +69,23 @@ class GitHubPushWebhookFlowTest {
 				.andExpect(status().isAccepted())
 				.andExpect(jsonPath("$.deliveryId").value(DELIVERY_ID))
 				.andExpect(jsonPath("$.outcome").value("ACCEPTED"));
+
+		var event = pushEvents.handed.getFirst();
+		assertEquals(1, pushEvents.handed.size());
+		assertEquals("mohamedmbg/zeroyaml", event.repository().fullName());
+		assertEquals("main", event.branch().value());
+		assertEquals("0123456789abcdef0123456789abcdef01234567", event.commitSha().value());
+		assertEquals(DELIVERY_ID, event.deliveryId());
+	}
+
+	@Test
+	void refusesAPushWithServiceUnavailableWhenPipelineProcessingIsAtCapacity() throws Exception {
+		pushEvents.atCapacity = true;
+
+		mockMvc.perform(signedPush(fixture("push-main.json")))
+				.andExpect(status().isServiceUnavailable())
+				.andExpect(jsonPath("$.outcome").value("REJECTED"))
+				.andExpect(jsonPath("$.message").value("pipeline processing is at capacity; redeliver the push later"));
 	}
 
 	@Test
@@ -70,6 +106,7 @@ class GitHubPushWebhookFlowTest {
 		mockMvc.perform(signedPush(jsonMapper.writeValueAsBytes(payload)))
 				.andExpect(status().isAccepted())
 				.andExpect(jsonPath("$.outcome").value("ACCEPTED"));
+		assertTrue(pushEvents.handed.isEmpty());
 	}
 
 	private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder signedPush(byte[] payload) {
@@ -111,5 +148,24 @@ class GitHubPushWebhookFlowTest {
 			NormalizingGitHubWebhookDeliveryHandler.class
 	})
 	static class WebhookTestConfiguration {
+
+		@Bean
+		RecordingPushEventHandler pushEventHandler() {
+			return new RecordingPushEventHandler();
+		}
+	}
+
+	static final class RecordingPushEventHandler implements RepositoryPushEventHandler {
+
+		final List<RepositoryPushEvent> handed = new CopyOnWriteArrayList<>();
+		volatile boolean atCapacity;
+
+		@Override
+		public void handle(RepositoryPushEvent event) {
+			if (atCapacity) {
+				throw new RejectedExecutionException("at capacity");
+			}
+			handed.add(event);
+		}
 	}
 }

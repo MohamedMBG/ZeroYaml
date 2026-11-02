@@ -11,7 +11,7 @@ pipeline definition, or persistence entity.
 | Identity | `JobId`, backed by a UUID |
 | Repository context | Provider-neutral URI plus immutable source revision |
 | Execution definition | Ordered command arguments and working directory |
-| Runner linkage | Stable Runner ID plus process-specific instance ID after start |
+| Runner linkage | Stable Runner ID plus process-specific instance ID, set at dispatch or at start |
 | Timestamps | Creation, start, and completion `Instant` values |
 | Failure | Structured failure code and safe diagnostic message |
 
@@ -45,3 +45,9 @@ precede start, and start must precede completion when a start exists.
 The application layer remains responsible for choosing a Runner and sending an
 execution request. The Job aggregate only records the selected Runner process
 and enforces its own lifecycle invariants.
+
+`assign` binds a queued, unassigned Job to the Runner process it is dispatched
+to, before the Job starts. An assigned Job can start only on that same process;
+`start` with a different assignment, a second `assign`, or an `assign` outside
+`QUEUED` raises `IllegalStateException`. A Job that is never dispatched receives
+its assignment at start.
