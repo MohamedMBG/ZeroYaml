@@ -83,7 +83,7 @@ class GitHubRepositorySource implements RepositorySource {
 	}
 
 	private HttpRequest treeRequest(RepositoryIdentity repository, CommitSha revision) {
-		var base = properties.getApiBaseUrl().toString().replaceAll("/+$", "");
+		var base = properties.getApiBaseUrl().replaceAll("/+$", "");
 		var request = HttpRequest.newBuilder(URI.create(
 						base + "/repos/" + repository.owner() + "/" + repository.name() + "/git/trees/" + revision.value()))
 				.timeout(properties.getApiTimeout())

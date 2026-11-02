@@ -34,7 +34,8 @@ public class GitHubRepositoryProperties {
 	private static final Set<String> LOOPBACK_HOSTS = Set.of("localhost", "127.0.0.1", "[::1]");
 	private static final Set<String> LOCATION_SCHEMES = Set.of("https", "http", "file");
 
-	private URI apiBaseUrl = URI.create("https://api.github.com");
+	// Bind as text so Spring's URI converter cannot echo malformed credential-bearing input.
+	private String apiBaseUrl = "https://api.github.com";
 
 	// Optional and without a default: public repositories are readable without a
 	// token, and a token shipped in source would grant its access to every reader.
@@ -48,11 +49,11 @@ public class GitHubRepositoryProperties {
 
 	private String locationTemplate = "https://github.com/" + OWNER_PLACEHOLDER + "/" + NAME_PLACEHOLDER + ".git";
 
-	public URI getApiBaseUrl() {
+	public String getApiBaseUrl() {
 		return apiBaseUrl;
 	}
 
-	public void setApiBaseUrl(URI apiBaseUrl) {
+	public void setApiBaseUrl(String apiBaseUrl) {
 		this.apiBaseUrl = apiBaseUrl;
 	}
 
@@ -111,7 +112,14 @@ public class GitHubRepositoryProperties {
 	}
 
 	private void validateApiBaseUrl() {
-		var url = apiBaseUrl;
+		final URI url;
+		try {
+			url = apiBaseUrl == null ? null : URI.create(apiBaseUrl);
+		}
+		catch (IllegalArgumentException ex) {
+			// URI parser causes repeat the input and must not reach startup logs.
+			throw new IllegalStateException("zeroyaml.github.repository.api-base-url is not a valid URI");
+		}
 		var scheme = url == null || url.getScheme() == null ? "" : url.getScheme().toLowerCase(Locale.ROOT);
 		var host = url == null || url.getHost() == null ? "" : url.getHost().toLowerCase(Locale.ROOT);
 		var valid = url != null && url.isAbsolute() && !host.isEmpty()

@@ -186,7 +186,7 @@ class GitHubRepositorySourceTest {
 
 	private GitHubRepositoryProperties properties(String token) {
 		var properties = new GitHubRepositoryProperties();
-		properties.setApiBaseUrl(URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"));
+		properties.setApiBaseUrl("http://127.0.0.1:" + server.getAddress().getPort() + "/");
 		properties.setApiToken(token);
 		properties.validate();
 		return properties;

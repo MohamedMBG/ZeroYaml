@@ -1,6 +1,6 @@
 # ZeroYAML Project Progress
 
-Last updated: 2026-11-01 (Phase 2: #30 first end-to-end pipeline, local and unmerged)
+Last updated: 2026-11-02 (Phase 2: #30 first end-to-end pipeline, pull request #281 review fixes)
 
 Current phase: 2
 
@@ -68,10 +68,11 @@ The Runner Docker execution sandbox for issue #25 is merged into `main`. A Runne
 
 ## In progress
 
-- Issue #30, first end-to-end pipeline scenario: implemented locally on `feat/issue-30-first-e2e-pipeline`. It is not yet committed, reviewed, or merged.
+- Issue #30, first end-to-end pipeline scenario: implemented on `feat/issue-30-first-e2e-pipeline` in pull request #281. Review changes are in progress; it is not merged.
   - A verified push is handed from `NormalizingGitHubWebhookDeliveryHandler` to the new `io.zeroyaml.controlplane.orchestration` package. Only pushes for a connected, active repository are processed.
   - `PipelineOrchestrator` handles pushes and step completions on one worker thread with a 64-entry queue. When the queue is full, the webhook answers `503`, so GitHub can redeliver the push.
   - `GitHubRepositorySource` reads the commit's root file listing through the GitHub Git Trees API. The base URL is configurable, and a read-only token from `ZEROYAML_GITHUB_API_TOKEN` is optional. The call has a 10 s whole-exchange timeout and a 1 MB response bound, follows no redirects, and refuses truncated trees. The Runner checkout location comes from `zeroyaml.github.repository.location-template`. A request or connect timeout from the HTTP client is reported the same way as the whole-exchange timeout, and startup validation never echoes a rejected API URL or location template, because either may carry a credential.
+  - The API base URL binds as text before redacted URI validation, so malformed URLs cannot bypass validation through Spring's URI converter. Real Spring startup regression tests check both the logged failure and its exception chain for credential disclosure; valid HTTPS and local HTTP settings still bind successfully.
   - Inference (#22) and Job creation (#23) then record the ordered Jobs.
   - `PipelineProgression` dispatches steps strictly in order. Each step is queued, assigned to the selected Runner (#24), and persisted before `RunJob` is called. The next step is dispatched only after the previous one `SUCCEEDED`, and a failed or cancelled step cancels every later step.
   - A rejection, an acknowledgment from another Runner process, or `INVALID_ARGUMENT` / `FAILED_PRECONDITION` cancels the Job and logs the reason. An unknown outcome such as `DEADLINE_EXCEEDED` keeps the Job queued and assigned, and it is not resent.
@@ -84,6 +85,10 @@ The Runner Docker execution sandbox for issue #25 is merged into `main`. A Runne
   - The `V3` migration against PostgreSQL, the persisted dispatch assignment, and the Spring context wiring of the new beans are therefore not verified locally. They must pass in CI or on a machine with Docker before merge.
   - Runner `gofmt`, `go vet ./...`, and `go test ./...` passed.
   - The run against a real Runner and Docker is the automated test of #31.
+- Review validation for pull request #281 on 2026-11-02:
+  - Control Plane `.\mvnw.cmd --batch-mode verify` passed all 492 tests in an isolated source copy, including PostgreSQL migrations and persisted assignments, Kafka publication, and Spring context startup. This supersedes the Docker-related verification gap recorded above; the changed Java files match the tested copy.
+  - `.\mvnw.cmd --batch-mode '-Dtest=GitHubRepositoryPropertiesTest,GitHubRepositorySourceTest' test` passed all 18 focused tests. The startup-log regression reproduced the malformed API URL credential leak before the fix and passed afterward.
+  - Runner `go test ./...` and repository `git diff --check` passed. The real Runner end-to-end scenario remains #31.
 - Issue #32, local end-to-end development workflow documentation: the runbook is merged into `main` through pull request #267, and the issue stays open. `docs/local-development-workflow.md` sequences infrastructure, Control Plane, Runner, signed push delivery, Job execution, and persistence checks. It still demonstrates two separate paths because the webhook does not yet call inference, Job creation, Runner selection, and dispatch (#30). A refresh against `main`, merged through pull request #279, replaces the signed push payload that normalization (#20) now rejects with `400`, documents which push fields are read for every push and which only for a non-deleted branch push, records Flyway's second migration, and adds a hand-recorded `QUEUED` Job so status reports can be followed through `RUNNING` to `SUCCEEDED` or `FAILED` in PostgreSQL (#28). Its cleanup runs only after the restart check has read those rows back, and deletes only the rows the runbook inserted. It keeps the optional Kafka lifecycle event instructions from #29 and states which of its Jobs publish events. Its steps and expected states still need correction against the automated end-to-end test (#31) before #32 can close.
 - The other Phase 2 child issues (#30, #31) remain open.
 
