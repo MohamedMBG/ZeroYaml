@@ -94,6 +94,17 @@ class GitHubRepositorySourceTest {
 	}
 
 	@Test
+	void redactsHeaderErrorsIfTokenChangesAfterValidation() {
+		var properties = properties(null);
+		source = source(properties);
+		properties.setApiToken("credential-marker-value\n");
+		var failure = assertThrows(IllegalStateException.class, () -> source.rootSnapshot(REPOSITORY, REVISION));
+		assertTrue(failure.getMessage().contains("api-token"));
+		assertTrue(!failure.toString().contains("credential-marker-value"));
+		assertNull(failure.getCause());
+	}
+
+	@Test
 	void refusesATruncatedTree() {
 		respond(200, "{\"truncated\": true, \"tree\": [{\"path\": \"pom.xml\", \"type\": \"blob\"}]}");
 		source = source(properties(null));

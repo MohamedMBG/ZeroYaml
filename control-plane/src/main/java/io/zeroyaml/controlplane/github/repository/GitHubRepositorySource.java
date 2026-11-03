@@ -92,7 +92,12 @@ class GitHubRepositorySource implements RepositorySource {
 				.header("User-Agent", "zeroyaml-control-plane")
 				.GET();
 		if (properties.getApiToken() != null) {
-			request.header("Authorization", "Bearer " + properties.getApiToken());
+			try {
+				request.header("Authorization", "Bearer " + properties.getApiToken());
+			}
+			catch (IllegalArgumentException ex) {
+				throw new IllegalStateException("zeroyaml.github.repository.api-token is not a valid HTTP header value");
+			}
 		}
 		return request.build();
 	}

@@ -37,6 +37,30 @@ class GitHubRepositoryPropertiesTest {
 	}
 
 	@Test
+	void validatesBearerTokensWithoutDisclosingThem() {
+		assertValid(properties -> properties.setApiToken("abc-._~+/="));
+		for (var suffix : new String[] { "\n", "\r", " ", "\t", "é", "=x" }) {
+			assertInvalid("api-token", properties -> properties.setApiToken(SECRET + suffix));
+		}
+	}
+
+	@Test
+	@ExtendWith(OutputCaptureExtension.class)
+	void startupRejectsMalformedTokenWithoutLoggingIt(CapturedOutput output) {
+		var application = new SpringApplicationBuilder(PropertiesApplication.class)
+				.web(WebApplicationType.NONE).build();
+		application.setRegisterShutdownHook(false);
+		var failure = assertThrows(RuntimeException.class, () -> application.run(
+				"--zeroyaml.github.repository.api-token=" + SECRET + "\n",
+				"--spring.main.banner-mode=off"));
+		assertTrue(output.getAll().contains("zeroyaml.github.repository.api-token"));
+		assertFalse(output.getAll().contains(SECRET));
+		for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+			assertFalse(String.valueOf(cause.getMessage()).contains(SECRET));
+		}
+	}
+
+	@Test
 	void acceptsPlainHttpOnlyForALocalApi() {
 		assertValid(properties -> properties.setApiBaseUrl("http://localhost:8089"));
 		assertInvalid("api-base-url", properties -> properties.setApiBaseUrl("http://api.example.com"));

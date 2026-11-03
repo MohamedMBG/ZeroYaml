@@ -97,6 +97,9 @@ public class GitHubRepositoryProperties {
 	@PostConstruct
 	void validate() {
 		validateApiBaseUrl();
+		if (apiToken != null && !apiToken.matches("[A-Za-z0-9._~+/-]+=*")) {
+			throw new IllegalStateException("zeroyaml.github.repository.api-token must be a valid bearer token");
+		}
 		if (apiTimeout == null || apiTimeout.isNegative() || apiTimeout.isZero()
 				|| apiTimeout.compareTo(MAX_API_TIMEOUT) > 0) {
 			throw new IllegalStateException(
