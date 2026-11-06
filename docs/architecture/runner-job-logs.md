@@ -184,10 +184,10 @@ cannot silently pass as a successful measurement.
 
 The Control Plane checks field bounds (including a 256-character maximum per
 Runner identity field), protobuf timestamp validity, the
-existing Job's assigned Runner process, and strictly increasing sequences. The running
-status report normally establishes that assignment before output starts. If
-that report was lost and no assignment exists, logs are refused; a later
-terminal status report may still recover Job state. Admission uses a read-only
+existing Job's assigned Runner process, and strictly increasing sequences. The
+Control Plane records that assignment when it dispatches the Job, before
+`RunJob` is sent, so output is accepted from the first chunk. A Job that was
+never dispatched has no assignment, and its logs are refused. Admission uses a read-only
 `JobStore.find`: the assignment never changes once set. Later chunks and the final
 marker validate against the retained Runner identity without a PostgreSQL read.
 Admission checks retention capacity before that lookup, so overload never costs
@@ -344,14 +344,14 @@ Provision certificates outside the repository through the deployment's PKI:
   Rotate certificates by provisioning replacement files and restarting the service.
   Changes to registration/status authentication remain outside this log-ingress fix.
 
-Known gap until dispatch binds the assignment (#30): the assignment that log
-attribution checks is set by the plaintext, unauthenticated `ReportJobStatus`
-RPC. Any holder of a valid Runner certificate can report `RUNNING` for another
-`QUEUED` Job under its own Runner ID, then write that Job's log, which the read
-endpoint serves as genuine, or occupy its retention slot so the real Runner's
-chunks are refused with `FAILED_PRECONDITION`. A stricter certificate check on
-the log listener alone cannot close this. The status RPC must be authenticated,
-or the log writer must be checked against the dispatch record.
+The assignment that log attribution checks is recorded at dispatch (#30). A
+status report cannot create or replace it: `ReportJobStatus` refuses a report
+for a queued Job that was never dispatched, so a holder of another Runner's
+certificate can no longer claim a `QUEUED` Job by reporting `RUNNING` for it.
+`ReportJobStatus` itself is still plaintext and unauthenticated. A sender that
+knows a dispatched Job's `runner_id` and `instance_id` can still report status
+for that Job. Authenticating the status RPC belongs to Phase 6 transport
+security.
 
 | Service | Setting | Purpose |
 | --- | --- | --- |

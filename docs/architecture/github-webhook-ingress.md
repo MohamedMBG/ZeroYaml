@@ -140,6 +140,12 @@ equal event, and the delivery ID remains the idempotency key for downstream
 consumers. This boundary does not suppress repeated HTTP deliveries or persist
 processed IDs; durable duplicate suppression is tracked separately in #203.
 
+The normalized event is handed to `RepositoryPushEventHandler`, which queues it
+for [pipeline orchestration](./pipeline-orchestration.md) and returns without
+waiting for pipeline work. When that queue is full, the delivery is answered
+`503 Service Unavailable` with outcome `REJECTED` and an actionable message,
+so GitHub can redeliver it later.
+
 ## Configuration
 
 | Property | Default | Purpose |

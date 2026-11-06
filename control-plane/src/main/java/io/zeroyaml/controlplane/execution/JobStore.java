@@ -7,6 +7,7 @@ import java.util.function.Function;
 
 import io.zeroyaml.controlplane.domain.job.Job;
 import io.zeroyaml.controlplane.domain.job.JobId;
+import io.zeroyaml.controlplane.domain.job.JobStatus;
 import io.zeroyaml.controlplane.domain.job.RepositoryReference;
 import io.zeroyaml.controlplane.domain.pipeline.PipelineId;
 import io.zeroyaml.controlplane.domain.pipeline.PipelineJob;
@@ -48,11 +49,23 @@ public interface JobStore {
 	/** Returns Jobs in step order for one pipeline identity and repository revision. */
 	List<PipelineJobReference> findByPipeline(PipelineId pipelineId, RepositoryReference source);
 
+	/** Reads ordered pipeline references and their current status together. */
+	List<PipelineStepStatus> findPipelineStepStatuses(PipelineId pipelineId, RepositoryReference source);
+
+	/** Looks up the pipeline link for a single Job. */
+	Optional<PipelineJobReference> findPipelineJob(JobId jobId);
+
+	/** A point-in-time step status; mutations still use {@link #update}. */
+	record PipelineStepStatus(PipelineJobReference reference, JobStatus status) { }
+
 	/** Returns pipeline Jobs for a repository, ordered by creation time and step. */
 	List<PipelineJobReference> findByRepository(URI location);
 
 	/** Returns pipeline Jobs for one immutable repository revision. */
 	List<PipelineJobReference> findBySource(RepositoryReference source);
+
+	/** Returns at most 64 queued, unassigned pipeline Jobs after the given identity. */
+	List<JobId> findQueuedUnassignedAfter(JobId after);
 
 	/**
 	 * Looks up a Job for reading.

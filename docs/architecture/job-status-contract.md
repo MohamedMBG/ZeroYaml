@@ -93,6 +93,12 @@ Job reaches its outcome with a truthful timeline.
 A Job that was never queued is a different case: it is a `CONFLICT`, because
 queueing is the Control Plane's own decision and a report cannot invent it.
 
+Dispatch is the Control Plane's decision too. A queued Job receives its Runner
+assignment when it is dispatched, before `RunJob` is sent (see
+[Pipeline orchestration](./pipeline-orchestration.md)). A running or terminal
+report for a queued Job without an assignment is therefore a `CONFLICT`: the Job
+was never dispatched, and a report cannot claim it.
+
 ### Identity
 
 Only the process that executes a Job observes these facts, so a report from a

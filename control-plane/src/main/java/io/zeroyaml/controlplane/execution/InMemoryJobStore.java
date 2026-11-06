@@ -11,6 +11,7 @@ import java.util.function.Function;
 
 import io.zeroyaml.controlplane.domain.job.Job;
 import io.zeroyaml.controlplane.domain.job.JobId;
+import io.zeroyaml.controlplane.domain.job.JobStatus;
 import io.zeroyaml.controlplane.domain.job.RepositoryReference;
 import io.zeroyaml.controlplane.domain.pipeline.PipelineId;
 import io.zeroyaml.controlplane.domain.pipeline.PipelineJob;
@@ -54,6 +55,17 @@ class InMemoryJobStore implements JobStore {
 	}
 
 	@Override
+	public List<PipelineStepStatus> findPipelineStepStatuses(PipelineId pipelineId, RepositoryReference source) {
+		return findByPipeline(pipelineId, source).stream()
+				.map(reference -> new PipelineStepStatus(reference, jobsById.get(reference.jobId()).status())).toList();
+	}
+
+	@Override
+	public Optional<PipelineJobReference> findPipelineJob(JobId jobId) {
+		return Optional.ofNullable(pipelineJobs.get(Objects.requireNonNull(jobId, "jobId must not be null")));
+	}
+
+	@Override
 	public List<PipelineJobReference> findByRepository(URI location) {
 		Objects.requireNonNull(location, "location must not be null");
 		return references().stream().filter(reference -> jobsById.get(reference.jobId()).repository().location().equals(location)).toList();
@@ -63,6 +75,17 @@ class InMemoryJobStore implements JobStore {
 	public List<PipelineJobReference> findBySource(RepositoryReference source) {
 		Objects.requireNonNull(source, "source must not be null");
 		return references().stream().filter(reference -> jobsById.get(reference.jobId()).repository().equals(source)).toList();
+	}
+
+	@Override
+	public List<JobId> findQueuedUnassignedAfter(JobId after) {
+		return pipelineJobs.keySet().stream()
+				.filter(id -> after == null || id.value().toString().compareTo(after.value().toString()) > 0)
+				.filter(id -> {
+					var job = jobsById.get(id);
+					return job.status() == JobStatus.QUEUED && job.runnerAssignment().isEmpty();
+				})
+				.sorted(Comparator.comparing(id -> id.value().toString())).limit(64).toList();
 	}
 
 	private List<PipelineJobReference> references() {

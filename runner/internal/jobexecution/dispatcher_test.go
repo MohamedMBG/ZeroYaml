@@ -72,17 +72,31 @@ func TestSubmitFreesTheSlotWhenAnExecutionEnds(t *testing.T) {
 	}
 	reporter.waitForReports(t, 2)
 
-	// The slot is released after the terminal report, so the next Submit may
-	// briefly race it; a deadline keeps the test bounded without sleeping.
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		err := dispatcher.Submit(newTestJob())
-		if err == nil {
-			break
+	if err := dispatcher.Submit(newTestJob()); err != nil {
+		t.Fatalf("Submit() after the terminal report returned an error: %v", err)
+	}
+
+	closeDispatcher(t, dispatcher)
+}
+
+func TestSubmitFreesTheSlotBeforeTheTerminalReport(t *testing.T) {
+	executor := newScriptedExecutor(sandbox.Result{Outcome: sandbox.OutcomeSucceeded})
+	close(executor.release)
+	reporter := &submittingReporter{submitted: make(chan error, 1)}
+	dispatcher := newTestDispatcher(context.Background(), executor, reporter, 1)
+	reporter.dispatcher = dispatcher
+
+	if err := dispatcher.Submit(newTestJob()); err != nil {
+		t.Fatalf("first Submit() returned an error: %v", err)
+	}
+
+	select {
+	case err := <-reporter.submitted:
+		if err != nil {
+			t.Fatalf("Submit() during the terminal report returned an error: %v", err)
 		}
-		if !errors.Is(err, ErrAtCapacity) || time.Now().After(deadline) {
-			t.Fatalf("Submit() after completion error = %v", err)
-		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the terminal report was not sent")
 	}
 
 	closeDispatcher(t, dispatcher)
@@ -293,6 +307,22 @@ func (e *lifetimeExecutor) Run(ctx context.Context, _ sandbox.Spec) sandbox.Resu
 	<-ctx.Done()
 
 	return sandbox.Result{Outcome: sandbox.OutcomeCancelled, Message: "execution cancelled during job command"}
+}
+
+// submittingReporter submits another Job while the first terminal report is in
+// flight, as a Control Plane that dispatches the next pipeline step does.
+type submittingReporter struct {
+	dispatcher *Dispatcher
+	once       sync.Once
+	submitted  chan error
+}
+
+func (r *submittingReporter) Report(_ context.Context, report jobstatus.Report) (jobstatus.Result, error) {
+	if report.IsTerminal() {
+		r.once.Do(func() { r.submitted <- r.dispatcher.Submit(newTestJob()) })
+	}
+
+	return jobstatus.Result{Decision: jobstatus.DecisionApplied}, nil
 }
 
 type recordingReporter struct {

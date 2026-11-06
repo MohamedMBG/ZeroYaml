@@ -9,8 +9,9 @@ PipelineInferrer ──> Pipeline ──> PipelineJobTranslator ──> Pipeline
 ```
 
 Runner selection (#24) and `RunJob` dispatch are not part of this seam. The
-created Jobs stay in `CREATED`; queuing them, selecting a Runner, and
-dispatching belong to the end-to-end coordination work (#30).
+created Jobs stay in `CREATED`. Queuing them, selecting a Runner, and
+dispatching are done by [pipeline orchestration](./pipeline-orchestration.md)
+(#30).
 
 ## Translation (domain)
 
@@ -86,9 +87,8 @@ correlate the Jobs with the push that produced them.
   with the same plan records the rest; it does not roll back.
 - The link from a Job back to its step is returned to the caller and stored
   with the Job in PostgreSQL. See [Job persistence](./job-persistence.md).
-- Nothing calls the service from the webhook path yet. Obtaining the repository
-  file listing, calling inference, and handing the Jobs to selection and
-  dispatch are #30.
+- Pipeline orchestration (#30) calls the service for every inferred pipeline of
+  a verified push, then hands the Jobs to selection and dispatch.
 
 ## Out of scope
 

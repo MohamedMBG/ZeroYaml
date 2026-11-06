@@ -319,6 +319,7 @@ class GrpcJobExecutionStatusServiceTest {
 	private Job queuedJob() {
 		var job = Job.create(JobId.newId(), repository(), execution(), CREATED_AT);
 		job.queue(CREATED_AT.plusSeconds(1));
+		job.assign(RUNNER);
 		jobs.add(job);
 
 		return job;

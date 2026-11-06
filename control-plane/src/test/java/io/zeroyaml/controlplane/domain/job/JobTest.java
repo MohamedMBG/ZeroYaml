@@ -55,6 +55,65 @@ class JobTest {
 	}
 
 	@Test
+	void bindsAQueuedJobToItsRunnerBeforeItStarts() {
+		var job = newJob();
+		var assignment = new RunnerAssignment("runner-dev-01", "instance-1");
+
+		job.queue(QUEUED_AT);
+		job.assign(assignment);
+
+		assertEquals(JobStatus.QUEUED, job.status());
+		assertEquals(assignment, job.runnerAssignment().orElseThrow());
+		assertTrue(job.startedAt().isEmpty());
+
+		job.start(assignment, STARTED_AT);
+
+		assertEquals(JobStatus.RUNNING, job.status());
+		assertEquals(assignment, job.runnerAssignment().orElseThrow());
+	}
+
+	@Test
+	void refusesAnAssignmentOutsideTheQueueOrASecondOne() {
+		var assignment = new RunnerAssignment("runner-dev-01", "instance-1");
+		var created = newJob();
+		assertThrows(IllegalStateException.class, () -> created.assign(assignment));
+
+		var queued = newJob();
+		queued.queue(QUEUED_AT);
+		queued.assign(assignment);
+		assertThrows(IllegalStateException.class,
+				() -> queued.assign(new RunnerAssignment("runner-dev-02", "instance-1")));
+		assertEquals(assignment, queued.runnerAssignment().orElseThrow());
+	}
+
+	@Test
+	void clearsOnlyTheCurrentQueuedAssignmentAfterRejection() {
+		var assignment = new RunnerAssignment("runner-dev-01", "instance-1");
+		var other = new RunnerAssignment("runner-dev-02", "instance-1");
+		var job = newJob();
+		assertThrows(IllegalStateException.class, () -> job.clearRejectedAssignment(assignment));
+		job.queue(QUEUED_AT);
+		job.assign(assignment);
+		assertThrows(IllegalStateException.class, () -> job.clearRejectedAssignment(other));
+		job.clearRejectedAssignment(assignment);
+		assertTrue(job.runnerAssignment().isEmpty());
+		job.assign(other);
+		job.start(other, STARTED_AT);
+		assertThrows(IllegalStateException.class, () -> job.clearRejectedAssignment(other));
+	}
+
+	@Test
+	void refusesToStartAnAssignedJobOnAnotherRunnerProcess() {
+		var job = newJob();
+		job.queue(QUEUED_AT);
+		job.assign(new RunnerAssignment("runner-dev-01", "instance-1"));
+
+		assertThrows(IllegalStateException.class,
+				() -> job.start(new RunnerAssignment("runner-dev-01", "instance-2"), STARTED_AT));
+		assertEquals(JobStatus.QUEUED, job.status());
+	}
+
+	@Test
 	void followsFailureLifecycleAndRetainsFailureInformation() {
 		var job = newJob();
 		var failure = new JobFailure("EXECUTION_FAILED", "The command exited with status 1");

@@ -131,6 +131,10 @@ A failure message names the stage that failed and, for Docker errors, the last
 or the repository location. The terminal report is sent even during shutdown,
 bounded by `ZEROYAML_RUNNER_STATUS_REPORT_TIMEOUT`.
 
+The execution frees its concurrency slot before the terminal report is sent.
+The Control Plane dispatches the next pipeline step when it records that
+report, and that dispatch must not be refused as busy by the execution that
+just finished.
 Each execution also writes one `job execution finished` log record with the
 `job_id`, `execution_id`, `outcome`, `duration`, and `exit_code`.
 
