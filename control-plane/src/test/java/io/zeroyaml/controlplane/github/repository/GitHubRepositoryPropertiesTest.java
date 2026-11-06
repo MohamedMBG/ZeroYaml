@@ -83,6 +83,10 @@ class GitHubRepositoryPropertiesTest {
 	@Test
 	void requiresALocationTemplateWithoutCredentials() {
 		assertValid(properties -> properties.setLocationTemplate("file:///srv/sources/{owner}/{name}"));
+		assertValid(properties -> properties.setLocationTemplate("http://localhost:8089/{owner}/{name}"));
+		assertValid(properties -> properties.setLocationTemplate("http://127.0.0.1/{owner}/{name}"));
+		assertInvalid("location-template",
+				properties -> properties.setLocationTemplate("http://example.com/{owner}/{name}"));
 		assertInvalid("location-template", properties -> properties.setLocationTemplate("https://github.com/{owner}.git"));
 		assertInvalid("location-template",
 				properties -> properties.setLocationTemplate("https://" + SECRET + "@github.com/{owner}/{name}.git"));

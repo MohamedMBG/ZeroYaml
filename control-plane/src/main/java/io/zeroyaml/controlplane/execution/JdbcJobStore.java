@@ -202,6 +202,29 @@ class JdbcJobStore implements JobStore {
 	}
 
 	@Override
+	public List<PipelineStepStatus> findPipelineStepStatuses(PipelineId pipelineId, RepositoryReference source) {
+		Objects.requireNonNull(pipelineId, "pipelineId must not be null");
+		Objects.requireNonNull(source, "source must not be null");
+		return jdbc.sql("""
+				SELECT r.pipeline_id, j.step_position, j.step_name, j.id, j.status
+				FROM job j JOIN pipeline_run r ON r.id = j.pipeline_run_id
+				WHERE r.pipeline_id = :pipelineId AND r.repository_location = :location AND r.revision = :revision
+				ORDER BY j.step_position, j.id
+				""")
+				.param("pipelineId", pipelineId.value()).param("location", source.location().toString())
+				.param("revision", source.revision())
+				.query((row, number) -> new PipelineStepStatus(toReference(row, number),
+						JobStatus.valueOf(row.getString("status")))).list();
+	}
+
+	@Override
+	public Optional<PipelineJobReference> findPipelineJob(JobId jobId) {
+		Objects.requireNonNull(jobId, "jobId must not be null");
+		return jdbc.sql(REFERENCE_COLUMNS + "WHERE j.id = :id").param("id", jobId.value())
+				.query(JdbcJobStore::toReference).optional();
+	}
+
+	@Override
 	public List<PipelineJobReference> findByRepository(URI location) {
 		Objects.requireNonNull(location, "location must not be null");
 		return jdbc.sql(REFERENCE_COLUMNS + "WHERE r.repository_location = :value ORDER BY r.created_at, j.step_position, j.id")
@@ -217,6 +240,18 @@ class JdbcJobStore implements JobStore {
 				""")
 				.param("location", source.location().toString()).param("revision", source.revision())
 				.query(JdbcJobStore::toReference).list();
+	}
+
+	@Override
+	public List<JobId> findQueuedUnassignedAfter(JobId after) {
+		return jdbc.sql("""
+				SELECT id FROM job
+				WHERE pipeline_run_id IS NOT NULL AND status = 'QUEUED' AND runner_id IS NULL
+				  AND (CAST(:afterId AS uuid) IS NULL OR id > CAST(:afterId AS uuid))
+				ORDER BY id LIMIT 64
+				""")
+				.param("afterId", after == null ? null : after.value(), Types.OTHER)
+				.query((row, number) -> new JobId(row.getObject("id", UUID.class))).list();
 	}
 
 	private Job toJob(ResultSet row, int rowNumber) throws SQLException {

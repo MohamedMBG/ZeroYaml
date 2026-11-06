@@ -25,6 +25,7 @@ import org.springframework.util.unit.DataSize;
 import io.zeroyaml.controlplane.domain.repository.CommitSha;
 import io.zeroyaml.controlplane.domain.repository.RepositoryIdentity;
 import io.zeroyaml.controlplane.orchestration.RepositorySnapshotUnavailableException;
+import io.zeroyaml.controlplane.orchestration.RepositoryRateLimitedException;
 import tools.jackson.databind.json.JsonMapper;
 
 /** Reads root listings from a local stand-in for the GitHub Git Trees API. */
@@ -130,6 +131,39 @@ class GitHubRepositorySourceTest {
 		assertTrue(!unauthorized.getMessage().contains("secret-detail"));
 		assertTrue(!unauthorized.getMessage().contains("test-token-value"));
 		assertTrue(missing.getMessage().contains("status 404"));
+	}
+
+	@Test
+	void reportsRateLimitsWithoutMisdiagnosingThemAsBadTokens() {
+		source = source(properties(null));
+		for (var status : new int[] { 403, 429 }) {
+			respond(status, "{\"message\": \"private-detail\"}");
+			var failure = assertThrows(RepositorySnapshotUnavailableException.class,
+					() -> source.rootSnapshot(REPOSITORY, REVISION));
+			assertTrue(failure.getMessage().contains("rate limit"));
+			assertTrue(!failure.getMessage().contains("private-detail"));
+		}
+	}
+
+	@Test
+	void identifiesRateLimitedResponsesForDelayedRetry() {
+		source = source(properties(null));
+		respond(429, "{}");
+		var failure = assertThrows(RepositoryRateLimitedException.class,
+				() -> source.rootSnapshot(REPOSITORY, REVISION));
+		assertEquals(Duration.ofMinutes(1), failure.retryAfter());
+		respond(403, "{}");
+		var forbidden = assertThrows(RepositorySnapshotUnavailableException.class,
+				() -> source.rootSnapshot(REPOSITORY, REVISION));
+		assertTrue(!(forbidden instanceof RepositoryRateLimitedException));
+		responder.set(exchange -> {
+			exchange.getResponseHeaders().set("X-RateLimit-Remaining", "0");
+			exchange.getResponseHeaders().set("Retry-After", "120");
+			exchange.sendResponseHeaders(403, -1);
+		});
+		var limited = assertThrows(RepositoryRateLimitedException.class,
+				() -> source.rootSnapshot(REPOSITORY, REVISION));
+		assertEquals(Duration.ofSeconds(120), limited.retryAfter());
 	}
 
 	@Test

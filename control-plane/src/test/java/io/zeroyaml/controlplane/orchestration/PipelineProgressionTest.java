@@ -3,12 +3,16 @@ package io.zeroyaml.controlplane.orchestration;
 import static io.zeroyaml.controlplane.orchestration.OrchestrationTestDoubles.RUNNER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import io.grpc.Status;
@@ -83,15 +87,46 @@ class PipelineProgressionTest {
 	}
 
 	@Test
-	void cancelsTheJobAndTheLaterStepsWhenTheRunnerRejectsIt() {
+	void retriesAQueuedJobAfterAControlPlaneRestart() {
+		var steps = createPipeline();
+		selector.available = false;
+		progression.advance(PIPELINE, SOURCE);
+		selector.available = true;
+
+		new PipelineProgression(jobs, selector, runner, clock).retryQueued();
+
+		assertEquals(List.of(steps.getFirst()), dispatchedIds());
+	}
+
+	@Test
+	void aFailedRetryDoesNotBlockLaterJobs() {
+		var store = mock(JobStore.class);
+		var first = JobId.newId();
+		var second = JobId.newId();
+		when(store.findQueuedUnassignedAfter(null)).thenReturn(List.of(first, second));
+		when(store.find(first)).thenThrow(new IllegalStateException("test failure"));
+		when(store.find(second)).thenReturn(Optional.empty());
+
+		new PipelineProgression(store, selector, runner, clock).retryQueued();
+
+		verify(store).find(second);
+	}
+
+	@Test
+	void keepsAJobQueuedWhenTheRunnerIsBusyAndAllowsRedelivery() {
 		var steps = createPipeline();
 		runner.answer = job -> JobDispatchResult.rejected(
 				job.id(), JobRejectionReason.RUNNER_UNAVAILABLE, RUNNER, "runner is busy");
 
 		progression.advance(PIPELINE, SOURCE);
 
-		assertEquals(JobStatus.CANCELLED, status(steps.get(0)));
-		assertEquals(JobStatus.CANCELLED, status(steps.get(1)));
+		assertEquals(JobStatus.QUEUED, status(steps.get(0)));
+		assertTrue(job(steps.get(0)).runnerAssignment().isEmpty());
+		assertEquals(JobStatus.CREATED, status(steps.get(1)));
+		runner.answer = job -> JobDispatchResult.accepted(job.id(), RUNNER, "accepted");
+		progression.retryQueued();
+		assertEquals(RUNNER, job(steps.get(0)).runnerAssignment().orElseThrow());
+		assertEquals(2, runner.dispatched.size());
 	}
 
 	@Test

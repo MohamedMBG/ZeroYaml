@@ -19,6 +19,7 @@ import io.zeroyaml.controlplane.execution.JobStore;
 import io.zeroyaml.controlplane.execution.PipelineJobReference;
 import io.zeroyaml.controlplane.runner.RunnerClient;
 import io.zeroyaml.controlplane.runner.RunnerClientException;
+import io.zeroyaml.controlplane.runner.JobRejectionReason;
 import io.zeroyaml.controlplane.scheduling.RunnerSelectionOutcome;
 import io.zeroyaml.controlplane.scheduling.RunnerSelector;
 
@@ -29,7 +30,7 @@ import io.zeroyaml.controlplane.scheduling.RunnerSelector;
  *
  * <p>Every call reads the recorded state of all steps and acts on it, so calling
  * it again for the same pipeline, for example after a redelivered push, never
- * dispatches a step twice. Callers serialize calls; the class keeps no state.</p>
+ * dispatches a step twice. Callers serialize calls, including retry scans.</p>
  *
  * <h2>Dispatch</h2>
  *
@@ -42,7 +43,8 @@ import io.zeroyaml.controlplane.scheduling.RunnerSelector;
  * <ul>
  *   <li>accepted by the assigned Runner process: nothing more; status reports
  *       drive the Job from here;</li>
- *   <li>accepted by another process, rejected, or refused with
+ *   <li>rejected as unavailable: clear the assignment so a later call can retry;</li>
+ *   <li>accepted by another process, otherwise rejected, or refused with
  *       {@code INVALID_ARGUMENT} or {@code FAILED_PRECONDITION}: the Job is
  *       cancelled with the reason logged, and so are the later steps;</li>
  *   <li>any other transport failure: whether the Runner started the Job is
@@ -62,12 +64,31 @@ class PipelineProgression {
 	private final RunnerSelector selector;
 	private final RunnerClient runner;
 	private final Clock clock;
+	private JobId retryCursor;
 
 	PipelineProgression(JobStore jobs, RunnerSelector selector, RunnerClient runner, Clock clock) {
 		this.jobs = Objects.requireNonNull(jobs, "jobs must not be null");
 		this.selector = Objects.requireNonNull(selector, "selector must not be null");
 		this.runner = Objects.requireNonNull(runner, "runner must not be null");
 		this.clock = Objects.requireNonNull(clock, "clock must not be null");
+	}
+
+	/** Reconciles a bounded page of queued Jobs, including after a process restart. */
+	void retryQueued() {
+		var pending = jobs.findQueuedUnassignedAfter(retryCursor);
+		if (pending.isEmpty()) {
+			retryCursor = null;
+			return;
+		}
+		for (var id : pending) {
+			try {
+				advanceAfter(id);
+			} catch (RuntimeException ex) {
+				log.error("Could not retry queued job {}", id.value(), ex);
+			} finally {
+				retryCursor = id;
+			}
+		}
 	}
 
 	/** Advances the pipeline that the completed Job belongs to, if it belongs to one. */
@@ -78,9 +99,7 @@ class PipelineProgression {
 			return;
 		}
 		var source = job.get().repository();
-		jobs.findBySource(source).stream()
-				.filter(reference -> reference.jobId().equals(completedJob))
-				.findFirst()
+		jobs.findPipelineJob(completedJob)
 				.ifPresent(reference -> advance(reference.pipelineId(), source));
 	}
 
@@ -89,12 +108,11 @@ class PipelineProgression {
 		Objects.requireNonNull(pipelineId, "pipelineId must not be null");
 		Objects.requireNonNull(source, "source must not be null");
 
-		var steps = jobs.findByPipeline(pipelineId, source);
+		var statuses = jobs.findPipelineStepStatuses(pipelineId, source);
+		var steps = statuses.stream().map(JobStore.PipelineStepStatus::reference).toList();
 		for (var index = 0; index < steps.size(); index++) {
 			var step = steps.get(index);
-			var status = jobs.find(step.jobId()).map(Job::status).orElseThrow(
-					() -> new IllegalStateException("Job " + step.jobId().value() + " of pipeline "
-							+ pipelineId.value() + " is not recorded"));
+			var status = statuses.get(index).status();
 			switch (status) {
 				case SUCCEEDED -> {
 					// Earlier step done; look at the next one.
@@ -130,6 +148,16 @@ class PipelineProgression {
 		try {
 			var result = runner.dispatchJob(job);
 			if (!result.isAccepted()) {
+				if (result.rejection().orElseThrow() == JobRejectionReason.RUNNER_UNAVAILABLE) {
+					jobs.update(step.jobId(), current -> {
+						if (current.status() == JobStatus.QUEUED
+								&& current.runnerAssignment().filter(assigned.runner()::equals).isPresent()) {
+							current.clearRejectedAssignment(assigned.runner());
+						}
+						return current.status();
+					});
+					return true;
+				}
 				return abandon(step, "runner rejected the dispatch: " + result.rejection().orElseThrow() + " (" + result.message() + ")");
 			}
 			if (!result.runnerAssignment().orElseThrow().equals(assigned.runner())) {

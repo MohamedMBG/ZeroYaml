@@ -5,9 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.net.URI;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.HashMap;
@@ -16,6 +21,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
@@ -186,11 +193,65 @@ class PipelineOrchestratorTest {
 	}
 
 	@Test
+	void retriesRateLimitedPushAfterTheRequestedDelay() {
+		connect(true);
+		source.paths = Set.of("pom.xml");
+		source.rateLimited = true;
+		var retryClock = mock(Clock.class);
+		when(retryClock.instant()).thenReturn(NOW);
+		var retrying = new PipelineOrchestrator(identity -> Optional.ofNullable(connections.get(identity)), source,
+				ExecutionTestSupport.jobCreation(jobs, clock), new PipelineProgression(jobs, selector, runner, clock),
+				worker, retryClock);
+
+		retrying.handle(push("delivery-rate"));
+		retrying.retryQueued();
+		assertEquals(1, source.reads.get());
+		source.rateLimited = false;
+		when(retryClock.instant()).thenReturn(NOW.plusSeconds(60));
+		retrying.retryQueued();
+		assertEquals(2, source.reads.get());
+		assertEquals(1, runner.dispatched.size());
+	}
+
+	@Test
+	void stopsRetryingAfterTwoRateLimitedRetries() {
+		connect(true);
+		source.rateLimited = true;
+		var retryClock = mock(Clock.class);
+		when(retryClock.instant()).thenReturn(NOW);
+		var retrying = new PipelineOrchestrator(identity -> Optional.ofNullable(connections.get(identity)), source,
+				ExecutionTestSupport.jobCreation(jobs, clock), new PipelineProgression(jobs, selector, runner, clock),
+				worker, retryClock);
+		retrying.handle(push("delivery-rate"));
+		when(retryClock.instant()).thenReturn(NOW.plusSeconds(60));
+		retrying.retryQueued();
+		when(retryClock.instant()).thenReturn(NOW.plusSeconds(180));
+		retrying.retryQueued();
+		when(retryClock.instant()).thenReturn(NOW.plusSeconds(360));
+		retrying.retryQueued();
+		assertEquals(3, source.reads.get());
+	}
+
+	@Test
 	void refusesAPushWhenItCannotTakeMoreWorkButNeverFailsAStatusReport() {
 		worker.shutdown();
 
 		assertThrows(RejectedExecutionException.class, () -> orchestrator.handle(push("delivery-1")));
 		assertDoesNotThrow(() -> orchestrator.jobCompleted(JobId.newId()));
+	}
+
+	@Test
+	void shutdownWaitsForQueuedWorkWithoutInterruptingDispatch() throws InterruptedException {
+		var executor = mock(ExecutorService.class);
+		var draining = new PipelineOrchestrator(identity -> Optional.empty(), source,
+				ExecutionTestSupport.jobCreation(jobs, clock),
+				new PipelineProgression(jobs, selector, runner, clock), executor);
+
+		draining.shutdown();
+
+		verify(executor).shutdown();
+		verify(executor).awaitTermination(10, TimeUnit.SECONDS);
+		verify(executor, never()).shutdownNow();
 	}
 
 	private void succeed(JobId id) {
@@ -228,6 +289,7 @@ class PipelineOrchestratorTest {
 		final AtomicInteger reads = new AtomicInteger();
 		volatile Set<String> paths = Set.of();
 		volatile boolean unavailable;
+		volatile boolean rateLimited;
 
 		@Override
 		public URI location(RepositoryIdentity repository) {
@@ -237,6 +299,9 @@ class PipelineOrchestratorTest {
 		@Override
 		public RepositorySnapshot rootSnapshot(RepositoryIdentity repository, CommitSha revision) {
 			reads.incrementAndGet();
+			if (rateLimited) {
+				throw new RepositoryRateLimitedException("rate limited", Duration.ofMinutes(1));
+			}
 			if (unavailable) {
 				throw new RepositorySnapshotUnavailableException("GitHub API answered status 500");
 			}

@@ -151,12 +151,14 @@ public class GitHubRepositoryProperties {
 			throw new IllegalStateException("zeroyaml.github.repository.location-template is not a valid URI template");
 		}
 		var scheme = sample.getScheme() == null ? "" : sample.getScheme().toLowerCase(Locale.ROOT);
+		var host = sample.getHost() == null ? "" : sample.getHost().toLowerCase(Locale.ROOT);
 		if (!sample.isAbsolute() || !LOCATION_SCHEMES.contains(scheme) || sample.getRawUserInfo() != null
-				|| sample.getRawQuery() != null || sample.getRawFragment() != null) {
+				|| sample.getRawQuery() != null || sample.getRawFragment() != null
+				|| scheme.equals("http") && !LOOPBACK_HOSTS.contains(host)) {
 			// Locations are stored with every Job and sent to the Runner, so they must not carry credentials.
 			throw new IllegalStateException(
 					"zeroyaml.github.repository.location-template must produce an https, http, or file URI without "
-							+ "credentials, query, or fragment");
+							+ "credentials, query, or fragment (http is accepted only for localhost)");
 		}
 	}
 

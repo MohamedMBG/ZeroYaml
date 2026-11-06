@@ -126,7 +126,7 @@ public final class Job {
 	 * <p>The assignment is recorded before dispatch because a Runner may report
 	 * the start of execution before its dispatch acknowledgment arrives. Once set,
 	 * it is the only process whose status reports and log writes are attributed to
-	 * this Job, and it never changes.</p>
+	 * this Job until an explicit rejection proves execution did not start.</p>
 	 *
 	 * @throws IllegalStateException if the Job is not queued or is already assigned
 	 */
@@ -139,6 +139,15 @@ public final class Job {
 			throw new IllegalStateException("Job " + id.value() + " is already assigned");
 		}
 		this.runnerAssignment = assignment;
+	}
+
+	/** Clears an assignment after the Runner explicitly declined the queued Job. */
+	public void clearRejectedAssignment(RunnerAssignment assignment) {
+		Objects.requireNonNull(assignment, "assignment must not be null");
+		if (status != JobStatus.QUEUED || !assignment.equals(runnerAssignment)) {
+			throw new IllegalStateException("Only the current assignment of a queued Job can be cleared");
+		}
+		this.runnerAssignment = null;
 	}
 
 	/**

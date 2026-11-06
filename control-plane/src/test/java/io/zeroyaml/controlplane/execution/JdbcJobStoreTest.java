@@ -82,6 +82,9 @@ class JdbcJobStoreTest {
 		assertEquals(List.of(build, test), store.findByPipeline(PIPELINE_ID, SOURCE));
 		assertEquals(List.of(build, test), store.findByRepository(SOURCE.location()));
 		assertEquals(List.of(build, test), store.findBySource(SOURCE));
+		assertEquals(build, store.findPipelineJob(build.jobId()).orElseThrow());
+		assertEquals(List.of(new JobStore.PipelineStepStatus(build, JobStatus.CREATED),
+				new JobStore.PipelineStepStatus(test, JobStatus.CREATED)), store.findPipelineStepStatuses(PIPELINE_ID, SOURCE));
 		assertEquals(SOURCE, store.find(build.jobId()).orElseThrow().repository());
 		assertEquals(List.of("mvn", "package"), store.find(build.jobId()).orElseThrow().execution().command());
 		assertEquals(1, jdbc.sql("SELECT count(*) FROM pipeline_run").query(Integer.class).single());
@@ -91,6 +94,18 @@ class JdbcJobStoreTest {
 		assertEquals(0, retried.createdCount());
 		assertEquals(2, jdbc.sql("SELECT count(*) FROM job").query(Integer.class).single());
 		assertEquals(NOW, store.find(test.jobId()).orElseThrow().createdAt());
+	}
+
+	@Test
+	void findsOnlyQueuedUnassignedPipelineJobsForRetry() {
+		var creation = new PipelineJobCreationService(store, event -> { }, Clock.fixed(NOW, ZoneOffset.UTC))
+				.createJobs(pipeline(SOURCE));
+		var pending = creation.jobs().getFirst().jobId();
+		var assigned = creation.jobs().get(1).jobId();
+		store.update(pending, job -> { job.queue(NOW); return job.status(); });
+		store.update(assigned, job -> { job.queue(NOW); job.assign(RUNNER); return job.status(); });
+		assertEquals(List.of(pending), freshStore().findQueuedUnassignedAfter(null));
+		assertTrue(freshStore().findQueuedUnassignedAfter(pending).isEmpty());
 	}
 
 	@Test

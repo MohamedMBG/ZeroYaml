@@ -87,6 +87,22 @@ class JobTest {
 	}
 
 	@Test
+	void clearsOnlyTheCurrentQueuedAssignmentAfterRejection() {
+		var assignment = new RunnerAssignment("runner-dev-01", "instance-1");
+		var other = new RunnerAssignment("runner-dev-02", "instance-1");
+		var job = newJob();
+		assertThrows(IllegalStateException.class, () -> job.clearRejectedAssignment(assignment));
+		job.queue(QUEUED_AT);
+		job.assign(assignment);
+		assertThrows(IllegalStateException.class, () -> job.clearRejectedAssignment(other));
+		job.clearRejectedAssignment(assignment);
+		assertTrue(job.runnerAssignment().isEmpty());
+		job.assign(other);
+		job.start(other, STARTED_AT);
+		assertThrows(IllegalStateException.class, () -> job.clearRejectedAssignment(other));
+	}
+
+	@Test
 	void refusesToStartAnAssignedJobOnAnotherRunnerProcess() {
 		var job = newJob();
 		job.queue(QUEUED_AT);

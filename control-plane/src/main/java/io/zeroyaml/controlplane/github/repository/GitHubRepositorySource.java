@@ -6,6 +6,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
+import java.time.Duration;
+import java.time.Instant;
 import java.net.http.HttpResponse.BodySubscriber;
 import java.net.http.HttpResponse.BodySubscribers;
 import java.nio.ByteBuffer;
@@ -26,6 +28,7 @@ import io.zeroyaml.controlplane.domain.pipeline.inference.RepositorySnapshot;
 import io.zeroyaml.controlplane.domain.repository.CommitSha;
 import io.zeroyaml.controlplane.domain.repository.RepositoryIdentity;
 import io.zeroyaml.controlplane.orchestration.RepositorySnapshotUnavailableException;
+import io.zeroyaml.controlplane.orchestration.RepositoryRateLimitedException;
 import io.zeroyaml.controlplane.orchestration.RepositorySource;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -72,9 +75,30 @@ class GitHubRepositorySource implements RepositorySource {
 		var response = send(treeRequest(repository, revision), repository);
 		var status = response.statusCode();
 		if (status != 200) {
+			if (status == 429 || status == 403 && (response.headers().firstValue("Retry-After").isPresent()
+					|| response.headers().firstValue("X-RateLimit-Remaining").filter("0"::equals).isPresent())) {
+				throw new RepositoryRateLimitedException(describeStatus(status, repository), retryAfter(response));
+			}
 			throw new RepositorySnapshotUnavailableException(describeStatus(status, repository));
 		}
 		return toSnapshot(response.body(), repository);
+	}
+
+	private static Duration retryAfter(HttpResponse<?> response) {
+		long seconds = 60;
+		try {
+			var header = response.headers().firstValue("Retry-After");
+			if (header.isPresent()) {
+				seconds = Math.max(seconds, Long.parseLong(header.get()));
+			}
+			var reset = response.headers().firstValue("X-RateLimit-Reset");
+			if (reset.isPresent()) {
+				seconds = Math.max(seconds, Math.subtractExact(Long.parseLong(reset.get()), Instant.now().getEpochSecond()));
+			}
+		} catch (NumberFormatException | ArithmeticException ex) {
+			return Duration.ofDays(2);
+		}
+		return Duration.ofSeconds(seconds);
 	}
 
 	@PreDestroy
@@ -177,8 +201,11 @@ class GitHubRepositorySource implements RepositorySource {
 
 	private static String describeStatus(int status, RepositoryIdentity repository) {
 		return switch (status) {
-			case 401, 403 -> "GitHub API refused access to " + repository.fullName() + " (status " + status
+			case 401 -> "GitHub API refused access to " + repository.fullName() + " (status " + status
 					+ "); check zeroyaml.github.repository.api-token and its repository permissions";
+			case 403 -> "GitHub API refused access to " + repository.fullName()
+					+ " (status 403); check repository permissions and GitHub API rate limits";
+			case 429 -> "GitHub API rate limit reached for " + repository.fullName() + " (status 429)";
 			case 404, 409, 422 -> "GitHub API found no readable tree for the pushed commit of " + repository.fullName()
 					+ " (status " + status + ")";
 			default -> "GitHub API answered status " + status + " for the tree of " + repository.fullName();

@@ -1,11 +1,16 @@
 package io.zeroyaml.controlplane.orchestration;
 
 import java.util.Objects;
+import java.util.LinkedHashMap;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import jakarta.annotation.PreDestroy;
 
@@ -13,6 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import io.zeroyaml.controlplane.connection.RepositoryConnectionLookup;
 import io.zeroyaml.controlplane.domain.event.RepositoryPushEvent;
@@ -50,6 +56,9 @@ class PipelineOrchestrator implements RepositoryPushEventHandler, JobCompletionL
 	private final PipelineProgression progression;
 	private final ExecutorService worker;
 	private final PipelineInferrer inferrer = new PipelineInferrer();
+	private final AtomicBoolean retryQueued = new AtomicBoolean();
+	private final LinkedHashMap<String, RateLimitedPush> rateLimitedPushes = new LinkedHashMap<>();
+	private final Clock clock;
 
 	@Autowired
 	PipelineOrchestrator(
@@ -58,7 +67,25 @@ class PipelineOrchestrator implements RepositoryPushEventHandler, JobCompletionL
 			PipelineJobCreationService jobCreation,
 			PipelineProgression progression
 	) {
-		this(connections, source, jobCreation, progression, newWorker());
+		this(connections, source, jobCreation, progression, newWorker(), Clock.systemUTC());
+	}
+
+	@Scheduled(fixedDelay = 5000)
+	void retryQueued() {
+		if (!retryQueued.compareAndSet(false, true)) {
+			return;
+		}
+		try {
+			worker.execute(() -> {
+				try {
+					runLogged("queued job retry", () -> { retryRateLimited(); progression.retryQueued(); });
+				} finally {
+					retryQueued.set(false);
+				}
+			});
+		} catch (RejectedExecutionException ex) {
+			retryQueued.set(false);
+		}
 	}
 
 	PipelineOrchestrator(
@@ -68,17 +95,23 @@ class PipelineOrchestrator implements RepositoryPushEventHandler, JobCompletionL
 			PipelineProgression progression,
 			ExecutorService worker
 	) {
+		this(connections, source, jobCreation, progression, worker, Clock.systemUTC());
+	}
+
+	PipelineOrchestrator(RepositoryConnectionLookup connections, RepositorySource source,
+			PipelineJobCreationService jobCreation, PipelineProgression progression, ExecutorService worker, Clock clock) {
 		this.connections = Objects.requireNonNull(connections, "connections must not be null");
 		this.source = Objects.requireNonNull(source, "source must not be null");
 		this.jobCreation = Objects.requireNonNull(jobCreation, "jobCreation must not be null");
 		this.progression = Objects.requireNonNull(progression, "progression must not be null");
 		this.worker = Objects.requireNonNull(worker, "worker must not be null");
+		this.clock = Objects.requireNonNull(clock, "clock must not be null");
 	}
 
 	@Override
 	public void handle(RepositoryPushEvent event) {
 		Objects.requireNonNull(event, "event must not be null");
-		worker.execute(() -> runLogged("push delivery " + event.deliveryId(), () -> process(event)));
+		worker.execute(() -> runLogged("push delivery " + event.deliveryId(), () -> process(event, 0)));
 	}
 
 	@Override
@@ -88,21 +121,29 @@ class PipelineOrchestrator implements RepositoryPushEventHandler, JobCompletionL
 			worker.execute(() -> runLogged("completion of job " + jobId.value(), () -> progression.advanceAfter(jobId)));
 		}
 		catch (RejectedExecutionException ex) {
-			log.error("The next step after job {} was not dispatched because pipeline work is at capacity; "
-					+ "redeliver the push to resume the pipeline", jobId.value());
+			log.error("The next step after job {} was not dispatched because pipeline work is {}; "
+					+ "redeliver the push to resume the pipeline", jobId.value(),
+					worker.isShutdown() ? "shutting down" : "at capacity");
 		}
 	}
 
 	@PreDestroy
 	void shutdown() throws InterruptedException {
-		worker.shutdownNow();
-		// A dispatch in progress is bounded by the Runner dispatch deadline.
+		worker.shutdown();
 		if (!worker.awaitTermination(10, TimeUnit.SECONDS)) {
 			log.warn("Pipeline work did not stop within 10s of shutdown");
 		}
 	}
 
-	private void process(RepositoryPushEvent event) {
+	private void retryRateLimited() {
+		var due = rateLimitedPushes.values().stream().filter(push -> !push.retryAt().isAfter(clock.instant())).toList();
+		for (var push : due) {
+			rateLimitedPushes.remove(push.event().deliveryId());
+			process(push.event(), push.attempt());
+		}
+	}
+
+	private void process(RepositoryPushEvent event, int attempt) {
 		var repository = event.repository();
 		var connection = connections.find(repository);
 		if (connection.isEmpty()) {
@@ -120,6 +161,17 @@ class PipelineOrchestrator implements RepositoryPushEventHandler, JobCompletionL
 		final RepositorySnapshot snapshot;
 		try {
 			snapshot = source.rootSnapshot(repository, event.commitSha());
+		}
+		catch (RepositoryRateLimitedException ex) {
+			if (attempt < 2 && ex.retryAfter().compareTo(Duration.ofHours(12)) <= 0
+					&& (rateLimitedPushes.containsKey(event.deliveryId()) || rateLimitedPushes.size() < QUEUE_CAPACITY)) {
+				var delay = ex.retryAfter().multipliedBy(1L << attempt);
+				rateLimitedPushes.put(event.deliveryId(), new RateLimitedPush(event, attempt + 1, clock.instant().plus(delay)));
+				log.warn("Push delivery {} was rate limited; a retry is scheduled", event.deliveryId());
+			} else {
+				log.warn("Push delivery {} was rate limited and cannot be retried automatically; redeliver it later", event.deliveryId());
+			}
+			return;
 		}
 		catch (RepositorySnapshotUnavailableException ex) {
 			log.warn("No pipeline for push delivery {} of {} at {}: {}",
@@ -144,6 +196,8 @@ class PipelineOrchestrator implements RepositoryPushEventHandler, JobCompletionL
 					event.deliveryId(), repository.fullName(), event.commitSha().value(), ambiguous.candidates());
 		}
 	}
+
+	private record RateLimitedPush(RepositoryPushEvent event, int attempt, Instant retryAt) { }
 
 	private static void runLogged(String work, Runnable task) {
 		try {

@@ -79,7 +79,7 @@ The Runner does not use the API. It checks the source out from the location that
 | `zeroyaml.github.repository.api-token` | `ZEROYAML_GITHUB_API_TOKEN` | none | Optional read-only token for private repositories. Never stored in a tracked file. |
 | `zeroyaml.github.repository.api-timeout` | - | `10s` | Greater than zero, at most `1m`. |
 | `zeroyaml.github.repository.max-tree-response-size` | - | `1MB` | Greater than zero, at most `32MB`. |
-| `zeroyaml.github.repository.location-template` | `ZEROYAML_GITHUB_REPOSITORY_LOCATION_TEMPLATE` | `https://github.com/{owner}/{name}.git` | Must contain `{owner}` and `{name}`; must produce an absolute `https`, `http`, or `file` URI without user info, query, or fragment. |
+| `zeroyaml.github.repository.location-template` | `ZEROYAML_GITHUB_REPOSITORY_LOCATION_TEMPLATE` | `https://github.com/{owner}/{name}.git` | Must contain `{owner}` and `{name}`; must produce an absolute `https`, `http`, or `file` URI without user info, query, or fragment. Plain HTTP is allowed only for loopback hosts. |
 
 The Control Plane refuses to start when a setting breaks its rule. A local run
 can point the template at a directory the Runner serves. For example,
@@ -114,8 +114,15 @@ Each dispatch has two phases.
 First, inside one Job store update, the step is queued, a Runner is selected,
 and the selection is recorded as the Job's assignment. When no Runner is
 available, the Job stays `QUEUED` without an assignment and a warning is
-logged. The step is dispatched by the next progression for that pipeline, which
-today means a redelivered push.
+logged. A bounded scan runs at five-second intervals and retries unassigned
+queued Jobs, including after a Control Plane restart; a redelivered push also
+retries them. Paging and other work can delay a retry beyond one interval.
+
+GitHub rate-limit responses schedule up to two retries of the push, with at
+least one minute of delay and exponential backoff. Numeric `Retry-After` and
+`X-RateLimit-Reset` values can lengthen that delay. Pending retries are bounded
+to 64 and live only in the Control Plane process; shutdown, excessive delays,
+or exhausted attempts require redelivery.
 
 Second, `RunJob` is sent to the configured Runner endpoint. The assignment
 already exists, so a Runner that reports `RUNNING` before its acknowledgment
@@ -125,7 +132,8 @@ arrives is accepted. The outcome is then handled as follows:
 | --- | --- |
 | Accepted by the assigned Runner process | Job stays `QUEUED` until the running report. |
 | Accepted by any other Runner process | Job and later steps are cancelled. |
-| Rejected by the Runner | Job and later steps are cancelled; the rejection reason is logged. |
+| Rejected as Runner unavailable | Job stays queued without an assignment; a later progression can retry. |
+| Other Runner rejection | Job and later steps are cancelled; the rejection reason is logged. |
 | `INVALID_ARGUMENT` or `FAILED_PRECONDITION` | Job and later steps are cancelled; the Runner can never run this Job. |
 | Any other failure, such as `DEADLINE_EXCEEDED` or `UNAVAILABLE` | Job stays `QUEUED` and assigned and is not resent, because the Runner may already be executing it. |
 
@@ -163,8 +171,9 @@ When the queue is full:
   pipeline.
 
 Each GitHub call is bounded by `api-timeout`, and each dispatch by
-`zeroyaml.runner.dispatch-deadline`. On shutdown, waiting work is dropped and
-the running task is given up to 10 seconds to finish.
+`zeroyaml.runner.dispatch-deadline`. On shutdown, the worker stops accepting new
+tasks and is given up to 10 seconds to drain without interruption. Work still
+pending when the process exits can be lost.
 
 The Runner frees its concurrency slot before it sends the terminal report.
 Without that, dispatching the next step could be refused as busy by the
