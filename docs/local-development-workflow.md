@@ -41,25 +41,27 @@ its tests are on `main`, but no production code path invokes it.
 | Runner starts, probes Docker, registers, heartbeats | Wired | [Section 4](#4-startup-order) |
 | Connected repository metadata is persisted | Wired; no HTTP API yet | [Section 6](#6-connect-a-repository) |
 | A signed `push` delivery is authenticated and accepted | Wired | [Section 7](#7-trigger-the-supported-push-scenario) |
-| An accepted branch push is normalized into a `RepositoryPushEvent` | Wired; the event is logged and nothing consumes it yet | [Section 7](#7-trigger-the-supported-push-scenario) |
-| A pipeline is inferred for the repository | Built, not called ([#22](https://github.com/MohamedMBG/ZeroYaml/issues/22)); joined by [#30](https://github.com/MohamedMBG/ZeroYaml/issues/30) | [Section 11](#11-automated-coverage) |
-| Executable Jobs are created and recorded | Built, not called ([#23](https://github.com/MohamedMBG/ZeroYaml/issues/23)); joined by [#30](https://github.com/MohamedMBG/ZeroYaml/issues/30) | [Section 8.2](#82-record-the-job-first-and-follow-its-state) records one by hand |
-| A healthy Runner is selected and the Job is dispatched | Selection built, not called ([#24](https://github.com/MohamedMBG/ZeroYaml/issues/24)); dispatch joined by [#30](https://github.com/MohamedMBG/ZeroYaml/issues/30) | [Section 8](#8-observe-one-job-execution) dispatches by hand |
+| An accepted branch push is normalized into a `RepositoryPushEvent` | Wired; the event is handed to pipeline orchestration ([#30](https://github.com/MohamedMBG/ZeroYaml/issues/30)) | [Section 7](#7-trigger-the-supported-push-scenario) |
+| A pipeline is inferred for the repository | Wired ([#22](https://github.com/MohamedMBG/ZeroYaml/issues/22), [#30](https://github.com/MohamedMBG/ZeroYaml/issues/30)); the root listing comes from the GitHub Git Trees API | [Section 11](#11-automated-coverage) |
+| Executable Jobs are created and recorded | Wired ([#23](https://github.com/MohamedMBG/ZeroYaml/issues/23), [#30](https://github.com/MohamedMBG/ZeroYaml/issues/30)) | [Section 8.2](#82-record-the-job-first-and-follow-its-state) records one by hand |
+| A healthy Runner is selected and the Job is dispatched | Wired ([#24](https://github.com/MohamedMBG/ZeroYaml/issues/24), [#30](https://github.com/MohamedMBG/ZeroYaml/issues/30)); steps go in order to the one configured Runner endpoint | [Section 8](#8-observe-one-job-execution) dispatches by hand |
 | A dispatched Job runs in Docker and reports running and terminal status | Wired | [Section 8](#8-observe-one-job-execution) |
 | Status reports move a recorded Job through `RUNNING` to `SUCCEEDED` or `FAILED` in PostgreSQL | Wired ([#27](https://github.com/MohamedMBG/ZeroYaml/issues/27), [#28](https://github.com/MohamedMBG/ZeroYaml/issues/28)) | [Section 8.2](#82-record-the-job-first-and-follow-its-state) |
 | Recorded Job state survives a Control Plane restart | Wired ([#28](https://github.com/MohamedMBG/ZeroYaml/issues/28)) | [Section 9](#persistence-checks) |
-| Job logs are streamed and captured | Not wired — [#26](https://github.com/MohamedMBG/ZeroYaml/issues/26) | [Section 9](#persistence-checks) |
+| Job logs are streamed and captured | Wired, off until its mTLS listener is configured ([#26](https://github.com/MohamedMBG/ZeroYaml/issues/26)) | [Section 9](#persistence-checks) |
 | Lifecycle events are published | Wired, off by default ([#29](https://github.com/MohamedMBG/ZeroYaml/issues/29)); only recorded Jobs produce events | [Section 9](#job-lifecycle-events) |
-| One push produces one executed pipeline | Not wired — [#30](https://github.com/MohamedMBG/ZeroYaml/issues/30) | [Section 9](#9-expected-states) |
+| One push produces one executed pipeline | Wired ([#30](https://github.com/MohamedMBG/ZeroYaml/issues/30)); not yet run by hand or by an automated test | [Pipeline orchestration](./architecture/pipeline-orchestration.md) |
 | An automated test covers the whole chain | Not wired — [#31](https://github.com/MohamedMBG/ZeroYaml/issues/31) | [Section 11](#11-automated-coverage) |
 
-Sections 7 and 8 are therefore still two verifiable halves, not one continuous
-run. A delivery ends at the normalization log line. An execution starts when a
-Job is dispatched directly to the Runner, and its state is persisted when the
-Job was recorded first. Issue
-[#30](https://github.com/MohamedMBG/ZeroYaml/issues/30) joins the two halves,
-and [#31](https://github.com/MohamedMBG/ZeroYaml/issues/31) adds the automated
-test this document must then be checked against.
+Sections 7 and 8 are still documented as two verifiable halves, not one
+continuous run. Issue [#30](https://github.com/MohamedMBG/ZeroYaml/issues/30) joins
+them in code: a push for a connected repository is listed through the GitHub
+Git Trees API, inferred, recorded, and dispatched step by step. A continuous
+local run therefore needs a repository the API can list, a location template
+the Runner can check out, and a Job image with a JDK. See
+[pipeline orchestration](./architecture/pipeline-orchestration.md).
+[#31](https://github.com/MohamedMBG/ZeroYaml/issues/31) adds the automated test this
+document must then be checked against.
 
 ## 3. Prerequisites
 
@@ -408,11 +410,13 @@ INFO  i.z.c.g.webhook.GitHubWebhookController  : Accepted GitHub delivery 72d316
 ```
 
 The controller logs `Accepted` only after the delivery handler returns, so the
-handler line comes first. The normalized `RepositoryPushEvent` is the current
-end of the chain: nothing infers a pipeline or creates Jobs from it until
-[#30](https://github.com/MohamedMBG/ZeroYaml/issues/30). Normalization does not
-consult the connection record from [Section 6](#6-connect-a-repository), so the
-same delivery is accepted whether or not the repository is connected. Neither
+handler line comes first. Normalization does not consult the connection record
+from [Section 6](#6-connect-a-repository), so the same delivery is accepted
+whether or not the repository is connected. Pipeline orchestration
+([#30](https://github.com/MohamedMBG/ZeroYaml/issues/30)) then ignores a push for a
+repository that is not connected or not active. For a connected repository it
+asks the GitHub API for the commit's root listing; the example commit does not
+exist there, so a warning names the refused listing and no Job is recorded. Neither
 line contains the payload or the signature.
 
 Each negative check below proves a gate rather than the happy path, so each is
@@ -455,13 +459,10 @@ there instead of pushing again.
 
 ## 8. Observe one job execution
 
-Job creation ([#23](https://github.com/MohamedMBG/ZeroYaml/issues/23)) and
-Runner selection ([#24](https://github.com/MohamedMBG/ZeroYaml/issues/24)) exist,
-but no push calls them yet, so the execution half is exercised by dispatching
-one `RunJob` by hand. This verifies the Runner sandbox, the status-report
-contract, and the Control Plane's reconciliation of a report, which are the
-parts [#30](https://github.com/MohamedMBG/ZeroYaml/issues/30) will drive from a
-push.
+This section exercises the execution half by dispatching one `RunJob` by
+hand. It verifies the Runner sandbox, the status-report contract, and the
+Control Plane's reconciliation of a report, which are the parts
+[#30](https://github.com/MohamedMBG/ZeroYaml/issues/30) drives from a push.
 
 [Section 8.1](#81-dispatch-an-unrecorded-job) dispatches a Job the Control
 Plane has never recorded, so every report is refused.
@@ -581,9 +582,8 @@ WARN  i.z.c.e.JobExecutionStatusRecorder : Job <uuid> reported SUCCEEDED by runn
 
 `decision=unknown_job` is the correct answer here, not a defect. The Control
 Plane owns authoritative Job state and never invents a Job from a report, and
-this Job was never recorded. Once
-[#30](https://github.com/MohamedMBG/ZeroYaml/issues/30) creates Jobs from a
-push, the same two reports are answered `applied`, as
+this Job was never recorded. For a Job that orchestration records and
+dispatches, the same two reports are answered `applied`, as
 [Section 8.2](#82-record-the-job-first-and-follow-its-state) shows by hand.
 
 Docker checks for the same execution:
@@ -611,15 +611,22 @@ exit code; status-report acknowledgment records omit that message.
 
 ### 8.2 Record the Job first and follow its state
 
-Status reports update a Job only when PostgreSQL already holds it. Until
-[#30](https://github.com/MohamedMBG/ZeroYaml/issues/30) records Jobs from a
-push, one `QUEUED` row is inserted by hand, and the dispatch reuses its
-identifier. Run this in the shell that prepared `$revision`, from the
-repository root:
+Status reports update a Job only when PostgreSQL already holds it and the Job
+is assigned to the reporting Runner process. The Control Plane records that
+assignment when it dispatches a Job itself
+([pipeline orchestration](./architecture/pipeline-orchestration.md)). A report
+for a queued Job without an assignment is refused as never dispatched. A Job
+dispatched by hand therefore needs one `QUEUED` row that already carries the
+Runner's identity, and the dispatch reuses its identifier.
+
+Set `$instanceId` (PowerShell) or `instance_id` (bash) to the `instanceId` of
+the [Section 8.1](#81-dispatch-an-unrecorded-job) acknowledgment. It stays
+valid until the Runner restarts. Then run this in the shell that prepared
+`$revision`, from the repository root:
 
 ```powershell
 $jobId = [guid]::NewGuid().ToString()
-"INSERT INTO job (id, repository_location, revision, command_json, working_directory, status, created_at, queued_at) VALUES ('$jobId', 'file:///C:/zeroyaml-sources/demo', '$revision', '[""sh"",""-c"",""cat greeting.txt""]', '.', 'QUEUED', now() - interval '1 minute', now() - interval '1 minute');" |
+"INSERT INTO job (id, repository_location, revision, command_json, working_directory, status, created_at, queued_at, runner_id, runner_instance_id) VALUES ('$jobId', 'file:///C:/zeroyaml-sources/demo', '$revision', '[""sh"",""-c"",""cat greeting.txt""]', '.', 'QUEUED', now() - interval '1 minute', now() - interval '1 minute', 'local-runner', '$instanceId');" |
   docker exec -i zeroyaml-postgres psql -U zeroyaml -d zeroyaml
 
 $request = @{
@@ -638,9 +645,10 @@ $request | grpcurl -plaintext -import-path proto -proto runner/v1/runner.proto `
 ```bash
 job_id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 docker exec -i zeroyaml-postgres psql -U zeroyaml -d zeroyaml <<SQL
-INSERT INTO job (id, repository_location, revision, command_json, working_directory, status, created_at, queued_at)
+INSERT INTO job (id, repository_location, revision, command_json, working_directory, status, created_at, queued_at,
+                 runner_id, runner_instance_id)
 VALUES ('$job_id', 'file://$HOME/zeroyaml-sources/demo', '$revision', '["sh","-c","cat greeting.txt"]', '.', 'QUEUED',
-        now() - interval '1 minute', now() - interval '1 minute');
+        now() - interval '1 minute', now() - interval '1 minute', 'local-runner', '$instance_id');
 SQL
 
 grpcurl -plaintext -import-path proto -proto runner/v1/runner.proto -d @ \
@@ -708,8 +716,8 @@ mirrored to the Runner as `JobLifecycleState`):
 
 | State | Meaning | Reached by | Observable today |
 | --- | --- | --- | --- |
-| `CREATED` | The Job exists and has not been offered to a Runner | Job creation from a pipeline (`PipelineJobCreationService`) | No; nothing calls Job creation until [#30](https://github.com/MohamedMBG/ZeroYaml/issues/30) |
-| `QUEUED` | The Job is waiting for a Runner | A Control Plane scheduling decision a Runner never observes or reports | Only as the hand-inserted row in [Section 8.2](#82-record-the-job-first-and-follow-its-state) |
+| `CREATED` | The Job exists and has not been offered to a Runner | Job creation from a pipeline (`PipelineJobCreationService`) | Briefly, before orchestration queues the first step; later steps stay `CREATED` until the previous step succeeds |
+| `QUEUED` | The Job is waiting for a Runner | Orchestration queues and assigns a step before `RunJob`; a Runner never reports it | While the dispatch is open, and as the hand-inserted row in [Section 8.2](#82-record-the-job-first-and-follow-its-state) |
 | `RUNNING` | The Runner reported `JOB_EXECUTION_RUNNING` | An accepted `RunJob`, then a running report | Yes, for a recorded Job ([Section 8.2](#82-record-the-job-first-and-follow-its-state)); refused as `unknown_job` otherwise ([Section 8.1](#81-dispatch-an-unrecorded-job)) |
 | `SUCCEEDED` | The command exited `0` | Terminal report `JOB_EXECUTION_SUCCEEDED` | As above |
 | `FAILED` | Non-zero exit, timeout, cancellation, or execution error | Terminal report `JOB_EXECUTION_FAILED` with a failure reason | As above |
@@ -857,7 +865,7 @@ event. [Section 8.2](#82-record-the-job-first-and-follow-its-state) records a
 `QUEUED` row by hand, so with publication enabled its applied running and
 terminal reports publish `job.started` and then `job.succeeded` or
 `job.failed`. `job.accepted` comes only from Job creation for a pipeline,
-which nothing calls until a push creates Jobs
+which a push for a connected repository triggers
 ([#30](https://github.com/MohamedMBG/ZeroYaml/issues/30)). The Section 8.2
 stream has not been observed in a recorded manual run, so the integration test
 above remains the executable check.
@@ -880,7 +888,8 @@ take up to 30 s.
 | `415` | The content type is not JSON | Use `Content-Type: application/json`, and set the same on the GitHub webhook |
 | `413` | The payload is above `zeroyaml.github.webhook.max-payload-size` | Raise the limit, up to GitHub's 25 MB cap, or send a smaller payload |
 | `200`, outcome `IGNORED`, for a push | `X-GitHub-Event` is not `push` | `push` is the only supported event; `ping` and all others are ignored by design |
-| `202` and a `Normalized GitHub push delivery` line, but no pipeline runs | Expected today | Nothing consumes the normalized event until [#30](https://github.com/MohamedMBG/ZeroYaml/issues/30) |
+| `202` and a `Normalized GitHub push delivery` line, but no pipeline runs | The repository is not connected or not active, its root listing could not be read, or inference found no supported build | A following `PipelineOrchestrator` line names the reason; see [pipeline orchestration](./architecture/pipeline-orchestration.md) |
+| `503` for a push | Pipeline work is at capacity (64 waiting tasks) | Redeliver the push once the Control Plane catches up |
 | `202` and a `has no executable branch commit` line | The push was a tag or a branch deletion | Expected; only a branch push carries a commit to execute |
 | Status reports for a recorded Job answered `unknown_job`, or refused for a start before creation | The Job row is missing, uses another identifier, or its `created_at` is later than the reported start | Insert the row before dispatching, reuse its `id` as `job_id`, and backdate `created_at` as in [Section 8.2](#82-record-the-job-first-and-follow-its-state) |
 | GitHub reports a delivery error while local `curl` works | The tunnel is down or the URL is wrong | Fix the tunnel, then redeliver from **Recent Deliveries** rather than pushing again |

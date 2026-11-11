@@ -16,7 +16,7 @@ class GitHubWebhookRejectedException extends RuntimeException {
 	private final String event;
 
 	/**
-	 * @param status client error returned to GitHub
+	 * @param status HTTP status returned to GitHub
 	 * @param deliveryId validated delivery identifier, or {@code null} when it was not yet validated
 	 * @param event validated event name, or {@code null} when it was not yet validated
 	 * @param reason operator-facing reason that never echoes request content

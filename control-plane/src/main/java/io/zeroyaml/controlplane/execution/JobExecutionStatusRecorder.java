@@ -6,6 +6,7 @@ import java.util.Objects;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import io.zeroyaml.controlplane.domain.job.Job;
@@ -29,10 +30,15 @@ import io.zeroyaml.controlplane.events.JobLifecycleEventPublisher;
  *   <li>a terminal report for a Job that is still queued starts the Job from
  *       the reported start time first, so a <em>lost</em> running report cannot
  *       leave a finished execution without a Job outcome;</li>
- *   <li>a report that contradicts the recorded state, or that comes from a
- *       process the Job is not assigned to, is a
- *       {@link JobStatusReportDecision#CONFLICT} and leaves the Job untouched.</li>
+ *   <li>a report that contradicts the recorded state, that comes from a
+ *       process the Job is not assigned to, or that concerns a Job never
+ *       dispatched to any Runner, is a {@link JobStatusReportDecision#CONFLICT}
+ *       and leaves the Job untouched.</li>
  * </ul>
+ *
+ * <p>The assignment is recorded by dispatch, never by a report. The status RPC
+ * is not authenticated, so letting a report establish the assignment would let
+ * any caller claim a queued Job and the right to write its log.</p>
  *
  * <p>Reconciliation runs with exclusive access to the Job through
  * {@link JobStore#update}, so concurrent reports for one Job are serialized.</p>
@@ -40,7 +46,8 @@ import io.zeroyaml.controlplane.events.JobLifecycleEventPublisher;
  * <p>An applied report publishes one lifecycle event per transition, and only
  * after {@link JobStore#update} has returned, when the transition is
  * committed. A report that is not applied publishes nothing, so a repeated
- * report never repeats an event.</p>
+ * report never repeats an event. The {@link JobCompletionListener} is told
+ * about every applied terminal transition, after its events are published.</p>
  */
 @Component
 public class JobExecutionStatusRecorder {
@@ -49,10 +56,17 @@ public class JobExecutionStatusRecorder {
 
 	private final JobStore jobs;
 	private final JobLifecycleEventPublisher events;
+	private final JobCompletionListener completions;
 
 	JobExecutionStatusRecorder(JobStore jobs, JobLifecycleEventPublisher events) {
+		this(jobs, events, jobId -> { });
+	}
+
+	@Autowired
+	JobExecutionStatusRecorder(JobStore jobs, JobLifecycleEventPublisher events, JobCompletionListener completions) {
 		this.jobs = Objects.requireNonNull(jobs, "jobs must not be null");
 		this.events = Objects.requireNonNull(events, "events must not be null");
+		this.completions = Objects.requireNonNull(completions, "completions must not be null");
 	}
 
 	/**
@@ -76,8 +90,12 @@ public class JobExecutionStatusRecorder {
 
 		logOutcome(report, reconciliation.outcome());
 		reconciliation.events().forEach(events::publish);
+		var outcome = reconciliation.outcome();
+		if (outcome.isApplied() && outcome.jobStatus().isTerminal()) {
+			completions.jobCompleted(report.jobId());
+		}
 
-		return reconciliation.outcome();
+		return outcome;
 	}
 
 	/**
@@ -134,6 +152,9 @@ public class JobExecutionStatusRecorder {
 					"Job " + job.id().value() + " was never queued for execution"
 			);
 			case QUEUED -> {
+				if (job.runnerAssignment().isEmpty()) {
+					yield notDispatched(job);
+				}
 				job.start(report.reportedBy(), report.startedAt());
 				yield JobStatusReportOutcome.applied(job.status(), "Job " + job.id().value() + " is running");
 			}
@@ -169,6 +190,10 @@ public class JobExecutionStatusRecorder {
 			);
 		}
 
+		if (job.runnerAssignment().isEmpty()) {
+			return notDispatched(job);
+		}
+
 		// The timeline is checked before anything is changed, so a rejected report
 		// never leaves the Job half-transitioned.
 		var startedAt = job.startedAt().orElse(report.startedAt());
@@ -193,6 +218,13 @@ public class JobExecutionStatusRecorder {
 
 		return JobStatusReportOutcome.applied(
 				job.status(), "Job " + job.id().value() + " reached " + job.status());
+	}
+
+	private static JobStatusReportOutcome notDispatched(Job job) {
+		return JobStatusReportOutcome.conflict(
+				job.status(),
+				"Job " + job.id().value() + " was not dispatched to any runner"
+		);
 	}
 
 	private static JobFailure toJobFailure(JobStatusReport report) {

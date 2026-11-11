@@ -29,7 +29,7 @@ import io.zeroyaml.controlplane.domain.repository.WebhookConfiguration;
  * {@link #find} reads back.</p>
  */
 @Service
-public class RepositoryConnectionService {
+public class RepositoryConnectionService implements RepositoryConnectionLookup {
 
 	private final RepositoryConnectionStore store;
 	private final Clock clock;

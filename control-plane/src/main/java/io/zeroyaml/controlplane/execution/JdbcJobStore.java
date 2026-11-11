@@ -202,6 +202,29 @@ class JdbcJobStore implements JobStore {
 	}
 
 	@Override
+	public List<PipelineStepStatus> findPipelineStepStatuses(PipelineId pipelineId, RepositoryReference source) {
+		Objects.requireNonNull(pipelineId, "pipelineId must not be null");
+		Objects.requireNonNull(source, "source must not be null");
+		return jdbc.sql("""
+				SELECT r.pipeline_id, j.step_position, j.step_name, j.id, j.status
+				FROM job j JOIN pipeline_run r ON r.id = j.pipeline_run_id
+				WHERE r.pipeline_id = :pipelineId AND r.repository_location = :location AND r.revision = :revision
+				ORDER BY j.step_position, j.id
+				""")
+				.param("pipelineId", pipelineId.value()).param("location", source.location().toString())
+				.param("revision", source.revision())
+				.query((row, number) -> new PipelineStepStatus(toReference(row, number),
+						JobStatus.valueOf(row.getString("status")))).list();
+	}
+
+	@Override
+	public Optional<PipelineJobReference> findPipelineJob(JobId jobId) {
+		Objects.requireNonNull(jobId, "jobId must not be null");
+		return jdbc.sql(REFERENCE_COLUMNS + "WHERE j.id = :id").param("id", jobId.value())
+				.query(JdbcJobStore::toReference).optional();
+	}
+
+	@Override
 	public List<PipelineJobReference> findByRepository(URI location) {
 		Objects.requireNonNull(location, "location must not be null");
 		return jdbc.sql(REFERENCE_COLUMNS + "WHERE r.repository_location = :value ORDER BY r.created_at, j.step_position, j.id")
@@ -219,6 +242,18 @@ class JdbcJobStore implements JobStore {
 				.query(JdbcJobStore::toReference).list();
 	}
 
+	@Override
+	public List<JobId> findQueuedUnassignedAfter(JobId after) {
+		return jdbc.sql("""
+				SELECT id FROM job
+				WHERE pipeline_run_id IS NOT NULL AND status = 'QUEUED' AND runner_id IS NULL
+				  AND (CAST(:afterId AS uuid) IS NULL OR id > CAST(:afterId AS uuid))
+				ORDER BY id LIMIT 64
+				""")
+				.param("afterId", after == null ? null : after.value(), Types.OTHER)
+				.query((row, number) -> new JobId(row.getObject("id", UUID.class))).list();
+	}
+
 	private Job toJob(ResultSet row, int rowNumber) throws SQLException {
 		var source = new RepositoryReference(URI.create(row.getString("repository_location")), row.getString("revision"));
 		var execution = new ExecutionDefinition(
@@ -230,9 +265,13 @@ class JdbcJobStore implements JobStore {
 		if (status != JobStatus.CREATED && fromColumn(row, "queued_at") != null) {
 			job.queue(fromColumn(row, "queued_at"));
 		}
+		var assignment = row.getString("runner_id") == null ? null
+				: new RunnerAssignment(row.getString("runner_id"), row.getString("runner_instance_id"));
+		if (assignment != null && job.status() == JobStatus.QUEUED) {
+			job.assign(assignment);
+		}
 		if (fromColumn(row, "started_at") != null) {
-			job.start(new RunnerAssignment(row.getString("runner_id"), row.getString("runner_instance_id")),
-					fromColumn(row, "started_at"));
+			job.start(assignment, fromColumn(row, "started_at"));
 		}
 		if (status == JobStatus.SUCCEEDED) {
 			job.succeed(fromColumn(row, "completed_at"), row.getObject("exit_code", Integer.class));

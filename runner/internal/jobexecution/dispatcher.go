@@ -157,13 +157,17 @@ func (d *Dispatcher) Close(ctx context.Context) error {
 func (d *Dispatcher) execute(spec sandbox.Spec) {
 	defer d.running.Done()
 	defer d.active.Add(-1)
-	defer func() { <-d.slots }()
 
 	startedAt := d.now()
 	d.report(jobstatus.Running(spec.JobID, startedAt))
 
 	result := d.executor.Run(d.lifetime, spec)
 	completedAt := d.now()
+
+	// The containers are gone once Run returns, so the slot is released before
+	// the terminal report: a Control Plane that dispatches the next pipeline
+	// step when that report arrives must find the capacity free.
+	<-d.slots
 
 	d.logResult(spec, result, completedAt.Sub(startedAt))
 	d.report(terminalReport(spec.JobID, startedAt, completedAt, result))
