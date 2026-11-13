@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/MohamedMBG/ZeroYaml/runner/internal/joblogs"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type logSink struct {
@@ -214,6 +216,36 @@ func TestRunBoundsLogCloseAfterCancellation(t *testing.T) {
 		t.Fatal("log close delayed terminal status beyond cancellation bound")
 	}
 	docker.assertCleanedUp(t, "checkout-id", "job-id")
+}
+
+func TestRejectedFinalMarkerLogsOnlyErrorClassification(t *testing.T) {
+	const sentinel = "remote-payload-sentinel"
+	var output bytes.Buffer
+	docker := newFakeDocker()
+	s := newTestSandbox(docker)
+	s.logger = slog.New(slog.NewTextHandler(&output, nil))
+	s.logs = closeLogSink(func(_ context.Context, record joblogs.Record) error {
+		if record.EndOfOutput {
+			return status.Error(codes.FailedPrecondition, sentinel)
+		}
+		return nil
+	})
+	s.stream = func(_ context.Context, stdout, _ io.Writer, _ string) error {
+		stdout.Write([]byte("output"))
+		return nil
+	}
+	if result := s.Run(context.Background(), testSpec()); result.Outcome != OutcomeSucceeded {
+		t.Fatalf("result = %+v", result)
+	}
+	logged := output.String()
+	if !strings.Contains(logged, "job output final marker was not acknowledged") ||
+		!strings.Contains(logged, "code=FailedPrecondition") ||
+		!strings.Contains(logged, "deadline_exceeded=false") {
+		t.Fatalf("missing classification in log: %s", logged)
+	}
+	if strings.Contains(logged, sentinel) {
+		t.Fatalf("remote error message leaked into log: %s", logged)
+	}
 }
 
 func TestRunBoundsLogCloseWithoutCancellation(t *testing.T) {
