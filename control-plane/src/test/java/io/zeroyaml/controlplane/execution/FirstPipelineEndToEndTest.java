@@ -251,9 +251,10 @@ class FirstPipelineEndToEndTest {
 
 	/**
 	 * Creates a local repository whose {@code mvnw} stands in for the Maven wrapper. Inference selects
-	 * {@code mvnw --batch-mode -DskipTests package} for build and {@code mvnw --batch-mode test} for test;
-	 * the failing fixture exits 7 only for the test arguments, so its build succeeds and its test fails with
-	 * a known exit code. The file mode can stay {@code 100644} because inference runs {@code sh mvnw}.
+	 * {@code sh mvnw --batch-mode -DskipTests package} for build and {@code sh mvnw --batch-mode test} for
+	 * test; the failing fixture exits 7 only for the test arguments, so its build succeeds and its test fails
+	 * with a known exit code. The file mode can stay {@code 100644} because the wrapper is run through
+	 * {@code sh}.
 	 */
 	private static String repository(Path sources, String name, boolean fail) throws Exception {
 		var path = Files.createDirectories(sources.resolve("fixture").resolve(name));

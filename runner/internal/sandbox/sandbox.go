@@ -188,7 +188,7 @@ func (s *Sandbox) closeLog(ctx context.Context, capture *joblogs.Capture, interr
 	closeCtx, closeCancel := context.WithTimeout(context.WithoutCancel(ctx), s.logFinalTimeout)
 	defer closeCancel()
 	if err := capture.CloseOnShutdown(closeCtx, ctx, s.logCloseTimeout, interrupted); err != nil {
-		s.logger.WarnContext(ctx, "job output final marker was not acknowledged")
+		s.logger.WarnContext(ctx, "job output final marker was not acknowledged", slog.String("error", err.Error()))
 	}
 }
 
