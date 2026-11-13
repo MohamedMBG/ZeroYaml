@@ -45,8 +45,21 @@ jobs:
           java-version: '21'
           cache: maven
 
+      - name: Set up Go for the end-to-end Runner
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: runner/go.mod
+          cache-dependency-path: runner/go.sum
+
+      - name: Pull Runner end-to-end images
+        run: |
+          docker pull alpine/git:v2.49.1
+          docker pull alpine:3.22
+
       - name: Run Maven tests
         working-directory: control-plane
+        env:
+          ZEROYAML_E2E_TESTS: '1'
         run: bash mvnw --batch-mode test
 
   progress-file:
