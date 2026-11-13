@@ -57,7 +57,11 @@ func NewReporter(endpoint Endpoint, identity runneridentity.Identity, timeout ti
 	if !roots.AppendCertsFromPEM(ca) {
 		return nil, fmt.Errorf("job log CA must contain PEM certificates")
 	}
-	connection, err := grpc.NewClient(endpoint.Address, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+	// No service config is published over DNS, and resolving a host name would
+	// otherwise also query the _grpc_config TXT record. On some hosts, such as
+	// Windows, that query for localhost can wait for a full DNS timeout before the
+	// first log record is sent, so the first Job's final marker misses its close bound.
+	connection, err := grpc.NewClient(endpoint.Address, grpc.WithDisableServiceConfig(), grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
 		MinVersion: tls.VersionTLS12, RootCAs: roots, Certificates: []tls.Certificate{certificate},
 	})))
 	if err != nil {

@@ -276,6 +276,24 @@ Run Java tests with:
 .\control-plane\mvnw.cmd test
 ```
 
+The first-pipeline end-to-end test also needs Go, Git, a running Docker daemon,
+and access to the `postgres:16-alpine`, `alpine/git:v2.49.1`, and `alpine:3.22`
+images. It creates temporary fixture repositories, test certificates, a fixture
+GitHub API, and a disposable PostgreSQL container; Redis and Kafka are not needed.
+The fixture Maven wrapper prints deterministic output and simulates a successful
+or failing command without downloading dependencies. From the repository root:
+
+```powershell
+$env:ZEROYAML_E2E_TESTS = '1'
+Push-Location control-plane
+.\mvnw.cmd --batch-mode '-Dtest=FirstPipelineEndToEndTest' test
+Pop-Location
+Remove-Item Env:ZEROYAML_E2E_TESTS
+```
+
+CI enables this test in the Control Plane job. Without the environment variable,
+the test is skipped; the remaining PostgreSQL integration tests still need Docker.
+
 ---
 
 ## 3.6 `.mvn/`
