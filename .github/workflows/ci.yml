@@ -51,6 +51,7 @@ jobs:
           go-version-file: runner/go.mod
           cache-dependency-path: runner/go.sum
 
+      # Keep these tags in sync with defaultCheckoutImage and defaultJobImage in runner/internal/runnerconfig/config.go.
       - name: Pull Runner end-to-end images
         run: |
           docker pull alpine/git:v2.49.1

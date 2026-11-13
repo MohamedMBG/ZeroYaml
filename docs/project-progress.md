@@ -1,6 +1,6 @@
 # ZeroYAML Project Progress
 
-Last updated: 2026-11-13 (Phase 2: #31 end-to-end test in progress)
+Last updated: 2026-11-13 (Phase 2: #31 end-to-end test, pull request #282 review fixes)
 
 Current phase: 2
 
@@ -91,7 +91,8 @@ The Runner Docker execution sandbox for issue #25 is merged into `main`. A Runne
   - `.\mvnw.cmd --batch-mode '-Dtest=GitHubRepositoryPropertiesTest,GitHubRepositorySourceTest' test` passed all 18 focused tests. The startup-log regression reproduced the malformed API URL credential leak before the fix and passed afterward.
   - Runner `go test ./...` and repository `git diff --check` passed. The real Runner end-to-end scenario remains #31.
 - Issue #32, local end-to-end development workflow documentation: the runbook is merged into `main` through pull request #267, and the issue stays open. `docs/local-development-workflow.md` sequences infrastructure, Control Plane, Runner, signed push delivery, Job execution, and persistence checks. It still demonstrates two separate paths and needs to be updated for the merged #30 orchestration. A refresh merged through pull request #279 corrected the signed push payload, documented normalization fields and the second migration, and added a hand-recorded `QUEUED` Job for status and persistence checks. Its steps and expected states still need correction against the automated end-to-end test (#31) before #32 can close.
-- Issue #31: local work adds an opt-in real-Runner and Docker test for signed pushes, successful and failing Jobs, persisted state, and mTLS Job logs. CI is configured to enable it; this work is not merged.
+- Issue #31: pull request #282 adds an opt-in real-Runner and Docker test for signed pushes, successful and failing Jobs, persisted state, and mTLS Job logs. CI enables it, and CI run 43459938135 passed `FirstPipelineEndToEndTest` on Linux (1 test, 6.4 s). Review follow-up splits the test into named setup helpers, adds Runner output to status and log assertion failures, and documents the fixture wrapper. This work is not merged.
+  - A later Windows rerun with `ZEROYAML_E2E_TESTS=1` passed the other 504 Control Plane tests, but the end-to-end test failed before and after the review changes: the Runner logged `job output final marker was not acknowledged`. The cause on that machine is not yet diagnosed.
   - On Windows, `ZEROYAML_E2E_TESTS=1` with Control Plane `.\mvnw.cmd --batch-mode verify` passed 505 tests in an isolated source copy; Runner `go test ./...` also passed. The first image pull timed out, and the test passed after the checkout image was pulled. The fixture uses a simulated Maven wrapper and does not contact GitHub or download project dependencies.
 
 ## Roadmap
@@ -108,7 +109,7 @@ The Runner Docker execution sandbox for issue #25 is merged into `main`. A Runne
 
 - Provision `ZEROYAML_DATABASE_PASSWORD` (and the URL and user outside local development) in every environment that runs the Control Plane, because startup fails without a reachable database since #19.
 - Provision a webhook secret (`ZEROYAML_GITHUB_WEBHOOK_SECRET`) in every environment that runs the Control Plane, because startup fails without one since #17.
-- Verify and review the automated first-pipeline test against a real Runner and Docker (#31).
+- Review and merge the automated first-pipeline test against a real Runner and Docker (#31, pull request #282).
 - Set `ZEROYAML_RUNNER_JOB_IMAGE` to a pinned image that provides a JDK, in every environment that runs the Maven scenario. The default `alpine:3.22` has no Java, so its build step fails.
 - Provide a read-only `ZEROYAML_GITHUB_API_TOKEN` wherever private repositories are connected. Without it, the Git Trees API answers `404` and no Jobs are created.
 - Carry the Job image and timeout in the `runner.v1` contract so they come from the Job definition instead of Runner configuration; this is a cross-service contract change that needs its own issue.
