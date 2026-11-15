@@ -552,7 +552,7 @@ func TestRunWithoutLogDeliveryDoesNotFollowOrWarn(t *testing.T) {
 	docker := newFakeDocker()
 	s := newTestSandbox(docker)
 	var output bytes.Buffer
-	s.logger = slog.New(slog.NewTextHandler(&output, nil))
+	s.logger = slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	s.stream = func(context.Context, io.Writer, io.Writer, string) error {
 		t.Error("disabled log follower invoked")
 		return errors.New("unsupported")

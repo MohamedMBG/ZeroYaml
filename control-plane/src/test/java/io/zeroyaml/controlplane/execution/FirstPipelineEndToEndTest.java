@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
@@ -25,6 +26,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
+import java.util.regex.Pattern;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
@@ -50,6 +52,9 @@ class FirstPipelineEndToEndTest {
 	private static final String KEYSTORE_PASSWORD = "fixture-password";
 
 	private static final String RUNNER_ID = "e2e-runner";
+
+	private static final Pattern EXECUTION_START = Pattern.compile(
+			"(?m)^.* msg=\"job execution starting\" execution_id=([0-9a-f]{12})$");
 
 	private static final String INSERT_CONNECTION = """
 			INSERT INTO repository_connection (
@@ -86,7 +91,7 @@ class FirstPipelineEndToEndTest {
 			postgres.start();
 			try (var context = startControlPlane(postgres, fixtureApi, sources, ports, serverIdentity, runnerIdentity)) {
 				var runner = startRunner(directory, sources, ports, serverIdentity, runnerIdentity, runnerOutput);
-				try {
+				try (var cleanup = new RunnerCleanup(runner, directory, runnerOutput)) {
 					var registry = context.getBean(RunnerRegistry.class);
 					await("Runner registration", Duration.ofSeconds(60),
 							() -> !registry.availableRunners().isEmpty(), runnerOutput);
@@ -100,12 +105,35 @@ class FirstPipelineEndToEndTest {
 					}
 					verifyScenario(webhookPort, jdbc, logs, success, "success", runnerOutput);
 					verifyScenario(webhookPort, jdbc, logs, failure, "failure", runnerOutput);
-				} finally {
-					stop(runner);
 				}
 			}
 		} finally {
 			fixtureApi.stop(0);
+		}
+	}
+
+	@Test
+	void cleanupRemovesOnlyRecordedExecutionResources(@TempDir Path directory) throws Exception {
+		var id = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+		var otherId = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+		var label = "io.zeroyaml.execution-id=" + id;
+		var otherLabel = "io.zeroyaml.execution-id=" + otherId;
+		var volume = "zeroyaml-" + id + "-workspace";
+		var otherVolume = "zeroyaml-" + otherId + "-workspace";
+		var container = "zeroyaml-" + id + "-job";
+		try {
+			command(directory, null, "docker", "volume", "create", "--label", label, volume);
+			command(directory, null, "docker", "volume", "create", "--label", otherLabel, otherVolume);
+			command(directory, null, "docker", "create", "--name", container, "--label", label,
+					"--mount", "type=volume,source=" + volume + ",target=/workspace", "alpine:3.22", "sleep", "300");
+			command(directory, null, "docker", "start", container);
+			cleanupResources(directory, List.of(id));
+			assertTrue(command(directory, null, "docker", "ps", "--all", "--quiet", "--filter", "label=" + label).isBlank());
+			assertTrue(command(directory, null, "docker", "volume", "ls", "--quiet", "--filter", "label=" + label).isBlank());
+			assertEquals(otherVolume, command(directory, null, "docker", "volume", "ls", "--quiet", "--filter",
+					"label=" + otherLabel).trim());
+		} finally {
+			cleanupResources(directory, List.of(id, otherId));
 		}
 	}
 
@@ -175,10 +203,50 @@ class FirstPipelineEndToEndTest {
 	}
 
 	private static void stop(Process process) throws InterruptedException {
+		var children = new ArrayList<>(process.descendants().toList());
 		process.destroy();
 		if (!process.waitFor(15, TimeUnit.SECONDS)) {
+			children.addAll(process.descendants().toList());
 			process.destroyForcibly();
-			process.waitFor(5, TimeUnit.SECONDS);
+			if (!process.waitFor(5, TimeUnit.SECONDS)) {
+				throw new IllegalStateException("Runner did not stop before cleanup");
+			}
+		}
+		for (var child : children) {
+			if (child.isAlive()) {
+				child.destroyForcibly();
+				try {
+					child.onExit().get(5, TimeUnit.SECONDS);
+				} catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException ex) {
+					throw new IllegalStateException("Runner child did not stop before cleanup", ex);
+				}
+			}
+		}
+	}
+
+	static List<String> executionIds(String output) {
+		return EXECUTION_START.matcher(output).results().map(match -> match.group(1)).distinct().toList();
+	}
+
+	private record RunnerCleanup(Process runner, Path directory, Path output) implements AutoCloseable {
+		@Override
+		public void close() throws Exception {
+			stop(runner);
+			cleanupResources(directory, executionIds(Files.readString(output)));
+		}
+	}
+
+	private static void cleanupResources(Path directory, List<String> executionIds) throws Exception {
+		for (var id : executionIds) {
+			var filter = "label=io.zeroyaml.execution-id=" + id;
+			var containers = command(directory, null, "docker", "ps", "--all", "--quiet", "--filter", filter);
+			for (var container : containers.lines().filter(line -> !line.isBlank()).toList()) {
+				command(directory, null, "docker", "rm", "--force", "--volumes", container);
+			}
+			var volumes = command(directory, null, "docker", "volume", "ls", "--quiet", "--filter", filter);
+			for (var volume : volumes.lines().filter(line -> !line.isBlank()).toList()) {
+				command(directory, null, "docker", "volume", "rm", "--force", volume);
+			}
 		}
 	}
 

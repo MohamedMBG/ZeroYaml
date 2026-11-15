@@ -293,6 +293,8 @@ Remove-Item Env:ZEROYAML_E2E_TESTS
 
 CI enables this test in the Control Plane job. Without the environment variable,
 the test is skipped; the remaining PostgreSQL integration tests still need Docker.
+After stopping its Runner, the test removes any remaining Docker containers and
+volumes belonging to the execution IDs recorded by that Runner.
 
 ---
 

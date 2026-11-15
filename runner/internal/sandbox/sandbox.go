@@ -170,6 +170,7 @@ func (s *Sandbox) Run(ctx context.Context, spec Spec) Result {
 	if err != nil {
 		return Result{Outcome: OutcomeExecutionError, Message: fmt.Sprintf("generate execution identifier: %v", err)}
 	}
+	s.logger.InfoContext(ctx, "job execution starting", slog.String("execution_id", executionID))
 
 	output := &jobOutput{capture: joblogs.NewCapture(runCtx, spec.JobID, s.logs)}
 	result := s.run(ctx, runCtx, executionID, spec, output)
