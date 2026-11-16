@@ -14,15 +14,17 @@ If this is your first time working on ZeroYAML, read:
 It explains the repository structure, architecture, prerequisites,
 development workflow, and the purpose of the main files and folders.
 
-To bring the platform up locally and verify the available webhook and Runner
-execution paths separately, follow:
+To bring the platform up locally and follow one signed GitHub `push` through
+an executed pipeline, follow:
 
 [Local End-to-End Development Workflow](./docs/local-development-workflow.md)
 
 It gives the startup order for infrastructure, Control Plane, and Runner, the
-required configuration and safe webhook secret handling, the supported signed
-GitHub `push` scenario, the expected states and persistence checks, and
-troubleshooting for the webhook, gRPC, Docker, and PostgreSQL boundaries.
+required configuration and safe secret handling, a local push fixture that
+needs no GitHub access, the supported signed `push` scenario with its
+succeeded and failed pipelines, the expected states and persistence checks, and
+troubleshooting for the webhook, orchestration, gRPC, Docker, and PostgreSQL
+boundaries.
 The [Developer Guide](./DEVELOPER_GUIDE.md) also describes how to run the
 automated first-pipeline end-to-end test.
 
