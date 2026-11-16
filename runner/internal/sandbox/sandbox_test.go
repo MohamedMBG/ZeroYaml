@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
@@ -111,6 +112,19 @@ func TestRunReportsASuccessfulCommandAndRemovesEveryResource(t *testing.T) {
 	if got := docker.commandSummary(); !slices.Equal(got, wantCommands) {
 		t.Errorf("docker commands =\n%v\nwant\n%v", got, wantCommands)
 	}
+}
+
+func TestRunLogsExecutionIDBeforeCreatingResources(t *testing.T) {
+	var output bytes.Buffer
+	s := newTestSandbox(newFakeDocker())
+	s.logger = slog.New(slog.NewTextHandler(&output, nil))
+	s.docker = func(_ context.Context, _ ...string) (string, error) {
+		if !strings.Contains(output.String(), "msg=\"job execution starting\" execution_id="+testExecutionID) {
+			t.Fatal("execution ID was not logged before Docker was called")
+		}
+		return "", errors.New("stop after first call")
+	}
+	s.Run(context.Background(), testSpec())
 }
 
 func TestRunReportsANonZeroExitCodeDeterministically(t *testing.T) {

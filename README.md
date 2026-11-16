@@ -23,6 +23,8 @@ It gives the startup order for infrastructure, Control Plane, and Runner, the
 required configuration and safe webhook secret handling, the supported signed
 GitHub `push` scenario, the expected states and persistence checks, and
 troubleshooting for the webhook, gRPC, Docker, and PostgreSQL boundaries.
+The [Developer Guide](./DEVELOPER_GUIDE.md) also describes how to run the
+automated first-pipeline end-to-end test.
 
 
 ## Architecture

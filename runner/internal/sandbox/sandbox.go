@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/MohamedMBG/ZeroYaml/runner/internal/joblogs"
+	"google.golang.org/grpc/status"
 )
 
 // defaultCleanupTimeout bounds each removal command. Removal runs after the
@@ -169,6 +170,7 @@ func (s *Sandbox) Run(ctx context.Context, spec Spec) Result {
 	if err != nil {
 		return Result{Outcome: OutcomeExecutionError, Message: fmt.Sprintf("generate execution identifier: %v", err)}
 	}
+	s.logger.InfoContext(ctx, "job execution starting", slog.String("execution_id", executionID))
 
 	output := &jobOutput{capture: joblogs.NewCapture(runCtx, spec.JobID, s.logs)}
 	result := s.run(ctx, runCtx, executionID, spec, output)
@@ -188,7 +190,10 @@ func (s *Sandbox) closeLog(ctx context.Context, capture *joblogs.Capture, interr
 	closeCtx, closeCancel := context.WithTimeout(context.WithoutCancel(ctx), s.logFinalTimeout)
 	defer closeCancel()
 	if err := capture.CloseOnShutdown(closeCtx, ctx, s.logCloseTimeout, interrupted); err != nil {
-		s.logger.WarnContext(ctx, "job output final marker was not acknowledged")
+		// Remote error messages may carry payloads, so only the classification is logged.
+		s.logger.WarnContext(ctx, "job output final marker was not acknowledged",
+			slog.String("code", status.Code(err).String()),
+			slog.Bool("deadline_exceeded", errors.Is(err, context.DeadlineExceeded)))
 	}
 }
 
