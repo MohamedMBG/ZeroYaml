@@ -75,7 +75,7 @@ repository is described in
 | Go, version from `runner/go.mod` | Runner |
 | `curl` | Sending a local webhook delivery |
 | `perl` with the core `Digest::SHA` module | Signing a local delivery from bash ([Section 7.1](#71-signed-local-delivery)); ships with Linux and macOS |
-| `openssl` | Generating the webhook secret from bash ([Section 4.3](#43-control-plane)) |
+| `openssl` | Generating the webhook secret ([Section 4.3](#43-control-plane)) and the delivery id ([Section 7.1](#71-signed-local-delivery)) from bash |
 | `grpcurl` | Only for the hand dispatch in [Section 8](#8-dispatch-a-job-by-hand) |
 | `uuidgen` | Only for the bash hand dispatch in [Section 8](#8-dispatch-a-job-by-hand); ships with macOS, and with the `util-linux` package on Linux, which minimal images can omit |
 
@@ -192,23 +192,26 @@ git add pom.xml mvnw
 git commit -m "fixture: passing build and test"
 revision="$(git rev-parse --verify HEAD)"
 cd -
-[ -n "$revision" ] || { echo 'No commit exists in the fixture repository. Set git user.name and user.email, then run this block again.' >&2; exit 1; }
+if [ -z "$revision" ]; then
+  echo 'No commit exists in the fixture repository. Set git user.name and user.email, then run this block again.' >&2
+else
+  trees="$HOME/zeroyaml-github-fixture/repos/local/demo/git/trees"
+  mkdir -p "$trees"
+  printf '%s' '{"truncated":false,"tree":[{"type":"blob","path":"pom.xml"},{"type":"blob","path":"mvnw"}]}' > "$trees/$revision"
 
-trees="$HOME/zeroyaml-github-fixture/repos/local/demo/git/trees"
-mkdir -p "$trees"
-printf '%s' '{"truncated":false,"tree":[{"type":"blob","path":"pom.xml"},{"type":"blob","path":"mvnw"}]}' > "$trees/$revision"
-
-docker run -d --name zeroyaml-github-fixture -p 127.0.0.1:8099:8099 \
-  -v "$HOME/zeroyaml-github-fixture:/www:ro" busybox:1.37 httpd -f -p 8099 -h /www
-curl -s -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:8099/repos/local/demo/git/trees/$revision"
+  docker run -d --name zeroyaml-github-fixture -p 127.0.0.1:8099:8099 \
+    -v "$HOME/zeroyaml-github-fixture:/www:ro" busybox:1.37 httpd -f -p 8099 -h /www
+  curl -s -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:8099/repos/local/demo/git/trees/$revision"
+fi
 ```
 
 The last command prints `200`. The fixture is published on the loopback
 address only, because the Control Plane accepts a plain-HTTP API base URL only
 for `localhost`, `127.0.0.1`, or `[::1]`.
 
-The bash block ends the shell with `exit 1` when no commit exists, so that no
-later step runs against an empty revision; the PowerShell block throws instead.
+When no commit exists, the bash block prints the message and skips the listing
+and the container, so that no later step runs against an empty revision and the
+shell stays open; the PowerShell block throws instead.
 
 Both blocks can be run again, with two differences from a first run:
 
@@ -755,9 +758,21 @@ hold a `pom.xml`. Then:
    name in lowercase.
 2. Start the Control Plane without the two `ZEROYAML_GITHUB_*` fixture
    settings, so the listing comes from `https://api.github.com` and the Runner
-   clones `https://github.com/{owner}/{name}.git`. An unauthenticated listing
-   is subject to GitHub's rate limit; a read-only `ZEROYAML_GITHUB_API_TOKEN`
-   raises it.
+   clones `https://github.com/{owner}/{name}.git`. The two settings exported in
+   [Section 4.3](#43-control-plane) stay set in that shell, so remove them
+   before starting; the webhook secret stays. Otherwise the push is listed
+   against the fixture server and records no Job.
+
+   ```powershell
+   Remove-Item Env:ZEROYAML_GITHUB_API_BASE_URL, Env:ZEROYAML_GITHUB_REPOSITORY_LOCATION_TEMPLATE
+   ```
+
+   ```bash
+   unset ZEROYAML_GITHUB_API_BASE_URL ZEROYAML_GITHUB_REPOSITORY_LOCATION_TEMPLATE
+   ```
+
+   An unauthenticated listing is subject to GitHub's rate limit; a read-only
+   `ZEROYAML_GITHUB_API_TOKEN` raises it.
 3. Start the Runner with `ZEROYAML_RUNNER_JOB_IMAGE` set to a pinned image that
    provides JDK 21, and Maven as well when the repository has no `mvnw`. The
    default `alpine:3.22` has neither, so `build` would fail. Raise
@@ -817,7 +832,7 @@ git add greeting.txt
 git commit -m "add greeting"
 revision="$(git rev-parse --verify HEAD)"
 cd -
-[ -n "$revision" ] || { echo 'No commit exists in the demo repository. Set git user.name and user.email, then run this block again.' >&2; exit 1; }
+[ -n "$revision" ] || echo 'No commit exists in the demo repository. Set git user.name and user.email, then run this block again.' >&2
 ```
 
 Both blocks can be run again: on a later run `git commit` reports that there is
@@ -1239,6 +1254,7 @@ after a `202`. The webhook response never reports these outcomes.
 | `No pipeline for push delivery ...: GitHub API found no readable tree for the pushed commit of local/demo (status 404)` | The fixture directory has no file named after the pushed commit, or the owner, name, or commit in the payload differs from the fixture path | Write the listing for that commit as in [Section 4.2](#42-push-fixture), or resend with the commit that has one |
 | `No pipeline for push delivery ...: GitHub API is unreachable for local/demo: <exception>`, or a line saying the API did not answer in time | The fixture container is not running, or `ZEROYAML_GITHUB_API_BASE_URL` points elsewhere | `docker start zeroyaml-github-fixture`, and check the base URL in the Control Plane shell |
 | `No pipeline for push delivery ...: No supported build file found at the repository root; supported: pom.xml` | The listing has no `pom.xml` | Add `pom.xml` to the repository and to the listing |
+| `No pipeline for push delivery ...: Unsupported build file at the repository root: <file>` | The listing holds exactly one root build file and it is not `pom.xml`: `build.gradle`, `build.gradle.kts`, `go.mod`, or `package.json` | Only Maven pipelines are inferred, so use a repository whose sole root build file is `pom.xml`. Adding `pom.xml` next to the other file produces the several-build-files line below instead |
 | `No pipeline for push delivery ...: several build files are present [<file>, <file>]` | The listing holds more than one root build file, for example `pom.xml` next to `build.gradle`, `build.gradle.kts`, `go.mod`, or `package.json`, so choosing one would be a guess | Keep a single root build file in the repository and in the listing, then push a new commit |
 | `No pipeline for push delivery ...: GitHub API refused access ... (status 403)` | A real GitHub listing was refused | Supply a read-only `ZEROYAML_GITHUB_API_TOKEN`, or wait if the cause is the rate limit |
 | `Push delivery <delivery> was rate limited; a retry is scheduled` | GitHub answered the listing with an identified rate limit | Nothing; the Control Plane retries in process at most twice, with a growing delay |
