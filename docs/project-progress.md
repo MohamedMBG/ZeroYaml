@@ -1,6 +1,6 @@
 # ZeroYAML Project Progress
 
-Last updated: 2026-11-16 (Phase 2: #32 runbook aligned with the #31 end-to-end test)
+Last updated: 2026-11-17 (Phase 2: #32 runbook aligned with the #31 end-to-end test)
 
 Current phase: 2
 
@@ -85,11 +85,11 @@ The Runner Docker execution sandbox for issue #25 is merged into `main`. A Runne
   - Control Plane `.\mvnw.cmd --batch-mode verify` ran 486 tests from a copy of `control-plane/` and `proto/` isolated from an editor build that was rewriting the working tree's `target/`. 461 passed. The 25 Testcontainers tests (`JdbcJobStoreTest`, `JdbcRepositoryConnectionStoreTest`, `KafkaJobLifecycleEventPublisherIntegrationTest`, `ControlPlaneApplicationTests`) could not start because no Docker daemon was available.
   - The `V3` migration against PostgreSQL, the persisted dispatch assignment, and the Spring context wiring of the new beans are therefore not verified locally. They must pass in CI or on a machine with Docker before merge.
   - Runner `gofmt`, `go vet ./...`, and `go test ./...` passed.
-  - The run against a real Runner and Docker is the automated test of #31.
+  - The run against a real Runner and Docker became the automated test of #31, merged through #282.
 - Review validation for pull request #281 on 2026-11-02:
   - Control Plane `.\mvnw.cmd --batch-mode verify` passed all 492 tests in an isolated source copy, including PostgreSQL migrations and persisted assignments, Kafka publication, and Spring context startup. This supersedes the Docker-related verification gap recorded above; the changed Java files match the tested copy.
   - `.\mvnw.cmd --batch-mode '-Dtest=GitHubRepositoryPropertiesTest,GitHubRepositorySourceTest' test` passed all 18 focused tests. The startup-log regression reproduced the malformed API URL credential leak before the fix and passed afterward.
-  - Runner `go test ./...` and repository `git diff --check` passed. The real Runner end-to-end scenario remains #31.
+  - Runner `go test ./...` and repository `git diff --check` passed. The real Runner end-to-end scenario was still open as #31 on that date and has since merged through #282.
 - Issue #32, local end-to-end development workflow documentation: the runbook is merged into `main` through pull requests #267 and #279, which referenced the issue without closing it. A change on branch `docs/issue-32-align-runbook-with-e2e` (pull request #283), not merged, aligns it with the merged #31 test and references #32 without closing it, because several runbook paths were never executed (see the validation note below):
   - Sections 7 and 8 no longer describe two separate halves. Section 7 runs one continuous signed push for a connected repository through inference, ordered dispatch, Docker execution, and PostgreSQL reconciliation, using the fixture shape of `FirstPipelineEndToEndTest`: a local `file://` repository whose `mvnw` is a stand-in, and a `busybox:1.37` static server on `127.0.0.1:8099` that answers the Git Trees API path for the pushed commit. No GitHub access, token, or JDK image is needed.
   - It documents the passing and failing pipelines (`build` and `test` `SUCCEEDED`; then `test` `FAILED` with `NON_ZERO_EXIT` and exit code `7`), the exact Control Plane and Runner log lines, redelivery and ignored pushes, and a mapping table from each runbook step to the test.

@@ -94,8 +94,13 @@ maps only the `/C:/` form to a Windows path, so it cancels the Job with
 the push fixture and the continuous scenario have not been executed anywhere,
 and none has been run on Linux or macOS, where `openssl`, `curl`, `mktemp`,
 `perl`, `uuidgen`, and `grpcurl` can behave differently, so treat them as
-unverified until a run there is recorded. [Section 11](#11-automated-coverage)
-records what was executed.
+unverified until a run there is recorded. Possible hazards, none of them
+reproduced: a `$HOME` containing spaces can yield an invalid `file://`
+location, so keep the source root on a path without spaces; a host with SELinux
+enforcing may need the `:z` suffix on the fixture bind mount; git can report
+"dubious ownership" for a source repository owned by another user; and BSD and
+GNU `mktemp` and `uuidgen` differ in options.
+[Section 11](#11-automated-coverage) records what was executed.
 
 Verify the toolchain before starting anything:
 
@@ -758,13 +763,14 @@ hold a `pom.xml`. Then:
    name in lowercase.
 2. Start the Control Plane without the two `ZEROYAML_GITHUB_*` fixture
    settings, so the listing comes from `https://api.github.com` and the Runner
-   clones `https://github.com/{owner}/{name}.git`. The two settings exported in
-   [Section 4.3](#43-control-plane) stay set in that shell, so remove them
-   before starting; the webhook secret stays. Otherwise the push is listed
-   against the fixture server and records no Job.
+   clones `https://github.com/{owner}/{name}.git`. When the shell from
+   [Section 4.3](#43-control-plane) is reused, the two settings stay set in it,
+   so remove them before starting; the webhook secret stays. Otherwise the push
+   is listed against the fixture server and records no Job. In a new shell
+   there is nothing to remove, and the commands below are harmless.
 
    ```powershell
-   Remove-Item Env:ZEROYAML_GITHUB_API_BASE_URL, Env:ZEROYAML_GITHUB_REPOSITORY_LOCATION_TEMPLATE
+   Remove-Item Env:ZEROYAML_GITHUB_API_BASE_URL, Env:ZEROYAML_GITHUB_REPOSITORY_LOCATION_TEMPLATE -ErrorAction SilentlyContinue
    ```
 
    ```bash
@@ -1013,10 +1019,15 @@ INFO  i.z.c.e.JobExecutionStatusRecorder : Job <uuid> reported RUNNING by runner
 Read the state back:
 
 ```powershell
-docker exec -i zeroyaml-postgres psql -U zeroyaml -d zeroyaml -c "SELECT id, status, runner_id, failure_code, exit_code FROM job;"
+docker exec -i zeroyaml-postgres psql -U zeroyaml -d zeroyaml -c "SELECT id, status, runner_id, failure_code, exit_code FROM job WHERE id = '$jobId';"
 ```
 
-The row shows `SUCCEEDED` with runner `local-runner` and exit code `0`. With
+```bash
+docker exec -i zeroyaml-postgres psql -U zeroyaml -d zeroyaml -c "SELECT id, status, runner_id, failure_code, exit_code FROM job WHERE id = '$job_id';"
+```
+
+The query is filtered because the table can still hold the `build` and `test`
+rows of [Section 7](#7-trigger-the-supported-push-scenario). The row shows `SUCCEEDED` with runner `local-runner` and exit code `0`. With
 the command `sh -c 'exit 3'` in both the row and the dispatch, the Runner logs
 `outcome=failed ... exit_code=3 message="job command exited with code 3"`, the
 terminal report is acknowledged with `failure_reason=non_zero_exit
@@ -1253,7 +1264,7 @@ after a `202`. The webhook response never reports these outcomes.
 | `... is ignored: the connection is SUSPENDED` (or `PENDING`, `DISCONNECTED`) | Only `ACTIVE` connections accept events | Set the status to `ACTIVE` |
 | `No pipeline for push delivery ...: GitHub API found no readable tree for the pushed commit of local/demo (status 404)` | The fixture directory has no file named after the pushed commit, or the owner, name, or commit in the payload differs from the fixture path | Write the listing for that commit as in [Section 4.2](#42-push-fixture), or resend with the commit that has one |
 | `No pipeline for push delivery ...: GitHub API is unreachable for local/demo: <exception>`, or a line saying the API did not answer in time | The fixture container is not running, or `ZEROYAML_GITHUB_API_BASE_URL` points elsewhere | `docker start zeroyaml-github-fixture`, and check the base URL in the Control Plane shell |
-| `No pipeline for push delivery ...: No supported build file found at the repository root; supported: pom.xml` | The listing has no `pom.xml` | Add `pom.xml` to the repository and to the listing |
+| `No pipeline for push delivery ...: No supported build file found at the repository root; supported: pom.xml` | The listing holds none of `pom.xml`, `build.gradle`, `build.gradle.kts`, `go.mod`, or `package.json` | Add `pom.xml` to the repository and to the listing, and keep it the only root build file; another one produces the several-build-files line below |
 | `No pipeline for push delivery ...: Unsupported build file at the repository root: <file>` | The listing holds exactly one root build file and it is not `pom.xml`: `build.gradle`, `build.gradle.kts`, `go.mod`, or `package.json` | Only Maven pipelines are inferred, so use a repository whose sole root build file is `pom.xml`. Adding `pom.xml` next to the other file produces the several-build-files line below instead |
 | `No pipeline for push delivery ...: several build files are present [<file>, <file>]` | The listing holds more than one root build file, for example `pom.xml` next to `build.gradle`, `build.gradle.kts`, `go.mod`, or `package.json`, so choosing one would be a guess | Keep a single root build file in the repository and in the listing, then push a new commit |
 | `No pipeline for push delivery ...: GitHub API refused access ... (status 403)` | A real GitHub listing was refused | Supply a read-only `ZEROYAML_GITHUB_API_TOKEN`, or wait if the cause is the rate limit |
@@ -1388,15 +1399,17 @@ What the suites cover, per step of this document:
 
 The continuous scenario of Section 7 was executed by hand against `main` at
 commit `0dbb6b7` on Windows on 2026-11-16, with PowerShell 7 and Docker Desktop
-(engine 29.2.1). The PowerShell steps ran with the documented commands and
-values, with three local deviations: the source root, fixture directory, and
+(engine 29.2.1). The PowerShell steps ran with the documented commands but
+not with the documented values, because of three local deviations: the source root, fixture directory, and
 webhook secret file lived below a temporary directory instead of
 `C:\zeroyaml-sources`, `C:\zeroyaml-github-fixture`, and the home directory;
 the Control Plane used `SERVER_PORT=8085` because `8080` was taken; and the
 Runner was a Linux build of `runner/cmd/runner` started in a container with
 the Docker socket mounted, rather than through `go run`, so the source root
-and location template used the Docker Desktop host path. That run
-covered the startup lines, the fixture listing, the passing and failing
+and location template used the Docker Desktop host path. The PowerShell
+Runner block of [Section 4.4](#44-runner), the default `C:\zeroyaml-sources`
+and `C:\zeroyaml-github-fixture` directories, and port `8080` were therefore
+not executed as written. That run covered the startup lines, the fixture listing, the passing and failing
 pipelines with the rows and log lines shown, the redelivery, the three ignored
 pushes of [Section 7.4](#74-repeated-and-ignored-pushes), the absence of
 leftover Docker resources, and the connection and Job rows surviving a
@@ -1420,9 +1433,18 @@ docker rm -f zeroyaml-github-fixture
 docker compose -f .\infra\compose.yaml down
 ```
 
-Removing the fixture container keeps `C:\zeroyaml-github-fixture` and the
-fixture repository, so [Section 4.2](#42-push-fixture) can be run again later.
-Delete both directories to start from a clean fixture.
+```bash
+# Stop the Runner, then the Control Plane: Ctrl+C in each shell.
+docker rm -f zeroyaml-github-fixture
+docker compose -f ./infra/compose.yaml down
+```
+
+Removing the fixture container keeps the fixture directory and the fixture
+repository, so [Section 4.2](#42-push-fixture) can be run again later. They are
+`C:\zeroyaml-github-fixture` and `C:\zeroyaml-sources\local\demo` in PowerShell,
+and `$HOME/zeroyaml-github-fixture` and `$HOME/zeroyaml-sources/local/demo` in
+bash. Delete both to start from a clean fixture; a kept repository makes
+Section 4.2 reuse its old history.
 
 The Runner stops on `SIGINT` or `SIGTERM` by closing its listener, draining
 in-flight RPCs, and cancelling running executions, all inside one
