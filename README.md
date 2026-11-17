@@ -24,7 +24,9 @@ required configuration and safe secret handling, a local push fixture that
 needs no GitHub access, the supported signed `push` scenario with its
 succeeded and failed pipelines, the expected states and persistence checks, and
 troubleshooting for the webhook, orchestration, gRPC, Docker, and PostgreSQL
-boundaries.
+boundaries. Its PowerShell blocks were run by hand with local deviations, and
+its Linux and macOS bash blocks and a Runner started with `go run` on Windows
+have not been run; the workflow records exactly what was executed.
 The [Developer Guide](./DEVELOPER_GUIDE.md) also describes how to run the
 automated first-pipeline end-to-end test.
 

@@ -91,7 +91,8 @@ Windows, `$HOME` is a POSIX path such as `/c/Users/x`, so the `file://` location
 the bash blocks build reaches the Runner as `file:///c/Users/x/...`. The Runner
 maps only the `/C:/` form to a Windows path, so it cancels the Job with
 `FAILED_PRECONDITION`; use the PowerShell blocks on Windows. The bash blocks for
-the push fixture and the continuous scenario have not been executed anywhere,
+the push fixture, the continuous scenario, and the hand dispatch of
+[Section 8](#8-dispatch-a-job-by-hand) have not been executed anywhere,
 and none has been run on Linux or macOS, where `openssl`, `curl`, `mktemp`,
 `perl`, `uuidgen`, and `grpcurl` can behave differently, so treat them as
 unverified until a run there is recorded. Possible hazards, none of them
@@ -327,6 +328,10 @@ Job sources and confines them to that directory; the location template from
 Plane address is set to `127.0.0.1` rather than the default `localhost`, as in
 the automated test, because resolving `localhost` can outlast the single
 registration attempt on Windows (see [gRPC](#grpc)).
+
+The `go run` Runner and the `C:\zeroyaml-sources` root below were not executed
+as written in the recorded manual run, which used a containerized Runner; see
+the [manual execution record](#manual-execution-record).
 
 ```powershell
 New-Item -ItemType Directory -Force -Path 'C:\zeroyaml-sources' | Out-Null
@@ -1409,18 +1414,26 @@ the Docker socket mounted, rather than through `go run`, so the source root
 and location template used the Docker Desktop host path. The PowerShell
 Runner block of [Section 4.4](#44-runner), the default `C:\zeroyaml-sources`
 and `C:\zeroyaml-github-fixture` directories, and port `8080` were therefore
-not executed as written. That run covered the startup lines, the fixture listing, the passing and failing
-pipelines with the rows and log lines shown, the redelivery, the three ignored
-pushes of [Section 7.4](#74-repeated-and-ignored-pushes), the absence of
-leftover Docker resources, and the connection and Job rows surviving a
+not executed as written, and the expected Runner output of Section 4.4 was not
+produced by a Runner started with `go run` on the host. A Windows reader who
+follows Sections 4.2 to 4.4 with the default paths and a host-started Runner is
+on a combination that no recorded run has covered.
+
+That run covered the startup lines, the fixture listing, the passing and
+failing pipelines with the rows and log lines shown, the redelivery, the three
+ignored pushes of [Section 7.4](#74-repeated-and-ignored-pushes), the absence
+of leftover Docker resources, and the connection and Job rows surviving a
 database restart. It did not cover the bash blocks, Windows PowerShell 5.1, a
 Runner started with `go run` on the host, Job logs, lifecycle events, or a
 delivery from GitHub itself.
 
-The hand dispatch of [Section 8](#8-dispatch-a-job-by-hand) and the webhook
-gate checks were last executed on Windows on 2026-10-26, with PowerShell 7.6.7,
-Git Bash with `perl`, and `grpcurl` run from the `fullstorydev/grpcurl:v1.9.3`
-container, including the recorded Job surviving a Control Plane restart.
+The PowerShell hand dispatch of [Section 8](#8-dispatch-a-job-by-hand) was last
+executed on Windows on 2026-10-26, with PowerShell 7.6.7 and `grpcurl` run from
+the `fullstorydev/grpcurl:v1.9.3` container, including the recorded Job
+surviving a Control Plane restart; the webhook gate checks of that run used
+Git Bash with `perl`. The Section 8 bash blocks were not part of it: under Git
+Bash their `$HOME`-based location is refused by the Runner (see
+[Section 3](#3-prerequisites)), and they have not been run on Linux or macOS.
 
 `FirstPipelineEndToEndTest` is authoritative. When behavior changes and this
 document disagrees with the test, correct the document.

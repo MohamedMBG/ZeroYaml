@@ -477,7 +477,9 @@ GitHub `push` scenario through an executed pipeline against a local fixture,
 states the expected states and persistence checks, and collects
 troubleshooting for the webhook, orchestration, gRPC, Docker, and PostgreSQL
 boundaries. It mirrors the first-pipeline end-to-end test, which is
-authoritative where the two disagree. This guide stays the reference for
+authoritative where the two disagree. Its PowerShell blocks were run by hand
+with local deviations, and its Linux and macOS bash blocks and a Runner started
+with `go run` on Windows have not been run. This guide stays the reference for
 individual settings and contracts.
 
 Code explains **how the current implementation works**.
@@ -1071,7 +1073,8 @@ Then bring the platform up and run one signed push through an executed
 pipeline by following the
 [Local End-to-End Development Workflow](./docs/local-development-workflow.md).
 It also maps each of its steps onto the automated first-pipeline end-to-end
-test and records when the manual scenario was last executed.
+test and records which parts of the manual scenario were executed, and which
+were not.
 
 ---
 
