@@ -86,13 +86,16 @@ inside the `zeroyaml-postgres` container. The scenario pulls
 avoids a first execution failing on a slow pull.
 
 PowerShell blocks are for Windows and are written for Windows PowerShell 5.1
-and PowerShell 7. Bash blocks from earlier revisions of this document were
-executed only under Git Bash on Windows, and the bash blocks for the push
-fixture and the continuous scenario have not been executed at all. None has
-been run on Linux or macOS, where `openssl`, `curl`, `mktemp`, `perl`,
-`uuidgen`, and `grpcurl` can behave differently, so treat them as unverified
-until a run there is recorded. [Section 11](#11-automated-coverage) records
-what was executed.
+and PowerShell 7. Bash blocks are for Linux and macOS only. Under Git Bash on
+Windows, `$HOME` is a POSIX path such as `/c/Users/x`, so the `file://` location
+the bash blocks build reaches the Runner as `file:///c/Users/x/...`. The Runner
+maps only the `/C:/` form to a Windows path, so it cancels the Job with
+`FAILED_PRECONDITION`; use the PowerShell blocks on Windows. The bash blocks for
+the push fixture and the continuous scenario have not been executed anywhere,
+and none has been run on Linux or macOS, where `openssl`, `curl`, `mktemp`,
+`perl`, `uuidgen`, and `grpcurl` can behave differently, so treat them as
+unverified until a run there is recorded. [Section 11](#11-automated-coverage)
+records what was executed.
 
 Verify the toolchain before starting anything:
 
@@ -189,7 +192,7 @@ git add pom.xml mvnw
 git commit -m "fixture: passing build and test"
 revision="$(git rev-parse --verify HEAD)"
 cd -
-[ -n "$revision" ] || echo 'No commit exists in the fixture repository. Set git user.name and user.email, then run this block again.' >&2
+[ -n "$revision" ] || { echo 'No commit exists in the fixture repository. Set git user.name and user.email, then run this block again.' >&2; exit 1; }
 
 trees="$HOME/zeroyaml-github-fixture/repos/local/demo/git/trees"
 mkdir -p "$trees"
@@ -204,10 +207,25 @@ The last command prints `200`. The fixture is published on the loopback
 address only, because the Control Plane accepts a plain-HTTP API base URL only
 for `localhost`, `127.0.0.1`, or `[::1]`.
 
-Both blocks can be run again. `git commit` then reports that there is nothing
-to commit and the existing commit is reused, and `docker run` reports that the
-name `zeroyaml-github-fixture` is in use; the running container keeps serving
-the directory, including files added later, so it needs no restart.
+The bash block ends the shell with `exit 1` when no commit exists, so that no
+later step runs against an empty revision; the PowerShell block throws instead.
+
+Both blocks can be run again, with two differences from a first run:
+
+- Before [Section 7.3](#73-failure-path), `git commit` reports that there is
+  nothing to commit and the existing commit is reused. After Section 7.3 the
+  block writes the passing `mvnw` back, which creates a new commit with a new
+  SHA, and it writes the listing for that SHA. Any `$revision` or `revision`
+  held from an earlier run is then stale: it names the previous commit, not the
+  new `HEAD`, so a delivery built from it pushes the old commit. Read `HEAD`
+  again, as the delivery block in [Section 7.1](#71-signed-local-delivery) does.
+- `docker run` fails with a name conflict, because the container
+  `zeroyaml-github-fixture` already exists. A running container keeps serving
+  the directory, including files added later, so it needs no restart. After a
+  reboot or a Docker restart the container still exists but is stopped, and
+  `docker ps -a --filter name=zeroyaml-github-fixture` shows it as `Exited`;
+  start it with `docker start zeroyaml-github-fixture`, which keeps its
+  published port and mount.
 
 ### 4.3 Control Plane
 
@@ -560,7 +578,11 @@ INFO  i.z.c.orchestration.PipelineProgression  : Pipeline <pipeline> finished: a
 
 The controller logs `Accepted` only after the delivery handler has queued the
 push, so the handler line comes first; the worker thread can start before the
-`Accepted` line is written. `test` is dispatched only after `build` reached
+`Accepted` line is written. The order is strict only between the steps:
+`Dispatched job` is logged after the `RunJob` call returns, so the Runner can
+report `RUNNING` (or even a terminal state, for a short command) before that
+line appears, and a `reported RUNNING` line may precede the `Dispatched job`
+line of the same Job. `test` is dispatched only after `build` reached
 `SUCCEEDED`. The pipeline and Job identifiers are name-based UUIDs derived from
 the repository source and commit, so the same commit always maps to the same
 pipeline and Jobs. No line contains the payload, the signature, the repository
@@ -710,7 +732,7 @@ in the `job` table.
 
 | Change | Expected |
 | --- | --- |
-| Run only the `curl` command of [Section 7.1](#71-signed-local-delivery) again, which resends the same bytes, digest, and delivery identifier | The log repeats `maps to pipeline <pipeline> with 2 steps`, and for a passing commit `finished: all 2 steps succeeded`, but no `recorded` line follows, no row is added, and nothing is dispatched. Job creation is idempotent and progression finds every step already terminal |
+| Run only the `curl` command of [Section 7.1](#71-signed-local-delivery) again, which resends the same bytes, digest, and delivery identifier | The log repeats the creation and mapping lines, in this order: `Pipeline <pipeline>: all 2 Jobs were already recorded`, then `maps to pipeline <pipeline> with 2 steps`, and for a passing commit `finished: all 2 steps succeeded`. The `recorded 2 of 2 Jobs` line does not appear, no row is added, and nothing is dispatched. Job creation is idempotent and progression finds every step already terminal |
 | `after` set to a commit that has no file in the fixture directory, signed again | `WARN ... No pipeline for push delivery <delivery> of local/demo at <commit>: GitHub API found no readable tree for the pushed commit of local/demo (status 404)`; no row |
 | Connection set to `SUSPENDED`: `UPDATE repository_connection SET status = 'SUSPENDED', status_changed_at = now() WHERE owner = 'local' AND name = 'demo';` | `INFO ... Push delivery <delivery> for local/demo is ignored: the connection is SUSPENDED`; no row. Set `status = 'ACTIVE'` the same way to resume |
 | No connection row for the repository | `INFO ... Push delivery <delivery> for local/demo is ignored: the repository is not connected`; no row |
@@ -795,7 +817,7 @@ git add greeting.txt
 git commit -m "add greeting"
 revision="$(git rev-parse --verify HEAD)"
 cd -
-[ -n "$revision" ] || echo 'No commit exists in the demo repository. Set git user.name and user.email, then run this block again.' >&2
+[ -n "$revision" ] || { echo 'No commit exists in the demo repository. Set git user.name and user.email, then run this block again.' >&2; exit 1; }
 ```
 
 Both blocks can be run again: on a later run `git commit` reports that there is
@@ -1217,7 +1239,10 @@ after a `202`. The webhook response never reports these outcomes.
 | `No pipeline for push delivery ...: GitHub API found no readable tree for the pushed commit of local/demo (status 404)` | The fixture directory has no file named after the pushed commit, or the owner, name, or commit in the payload differs from the fixture path | Write the listing for that commit as in [Section 4.2](#42-push-fixture), or resend with the commit that has one |
 | `No pipeline for push delivery ...: GitHub API is unreachable for local/demo: <exception>`, or a line saying the API did not answer in time | The fixture container is not running, or `ZEROYAML_GITHUB_API_BASE_URL` points elsewhere | `docker start zeroyaml-github-fixture`, and check the base URL in the Control Plane shell |
 | `No pipeline for push delivery ...: No supported build file found at the repository root; supported: pom.xml` | The listing has no `pom.xml` | Add `pom.xml` to the repository and to the listing |
-| `No pipeline for push delivery ...: GitHub API refused access ... (status 403)` or a rate-limit line | A real GitHub listing was refused or rate limited | Wait, or supply a read-only `ZEROYAML_GITHUB_API_TOKEN`; rate-limited pushes are retried at most twice |
+| `No pipeline for push delivery ...: several build files are present [<file>, <file>]` | The listing holds more than one root build file, for example `pom.xml` next to `build.gradle`, `build.gradle.kts`, `go.mod`, or `package.json`, so choosing one would be a guess | Keep a single root build file in the repository and in the listing, then push a new commit |
+| `No pipeline for push delivery ...: GitHub API refused access ... (status 403)` | A real GitHub listing was refused | Supply a read-only `ZEROYAML_GITHUB_API_TOKEN`, or wait if the cause is the rate limit |
+| `Push delivery <delivery> was rate limited; a retry is scheduled` | GitHub answered the listing with an identified rate limit | Nothing; the Control Plane retries in process at most twice, with a growing delay |
+| `Push delivery <delivery> was rate limited and cannot be retried automatically; redeliver it later` | The retries are used up, the retry wait exceeds 12 hours, or the retry queue is full | Redeliver the push from **Recent Deliveries** once the limit resets, preferably with a read-only `ZEROYAML_GITHUB_API_TOKEN`. A Control Plane restart also drops a scheduled retry |
 | `Job <job> (pipeline <pipeline> step 1) stays queued: ...` | No `HEALTHY` Runner that passed its Docker probe is registered | Start or restart the Runner as in [Section 4.4](#44-runner); a scan retries the step every five seconds, without a redelivery |
 | `Job <job> (...) is cancelled: runner refused the job with FAILED_PRECONDITION; dispatching it again to this runner cannot succeed` | The location from `ZEROYAML_GITHUB_REPOSITORY_LOCATION_TEMPLATE` is not below `ZEROYAML_RUNNER_LOCAL_SOURCE_ROOT`, the root is unset, or the scheme is unsupported | Align the template and the root, restart the affected process, and push a new commit; the cancelled Jobs of that commit are not re-dispatched by a redelivery. The Runner log names the exact refusal ([Docker](#docker)) |
 | `Job <job> (...) is cancelled: runner <id> instance <id> accepted the job, but it was assigned to runner ...` | `zeroyaml.runner.host` and `zeroyaml.runner.port` reach a different Runner process than the one registered | Run one Runner, at the address the Control Plane dispatches to (`localhost:50051` by default) |
