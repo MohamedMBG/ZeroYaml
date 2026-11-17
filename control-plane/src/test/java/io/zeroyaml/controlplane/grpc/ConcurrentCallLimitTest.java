@@ -1,4 +1,4 @@
-package io.zeroyaml.controlplane.execution;
+package io.zeroyaml.controlplane.grpc;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -48,7 +48,7 @@ import io.zeroyaml.contracts.runner.v1.JobLogServiceGrpc;
 import org.junit.jupiter.api.Test;
 
 /** Permit accounting is checked directly; refusal and executor rejection are also checked over transports. */
-class JobLogCallLimitTest {
+class ConcurrentCallLimitTest {
 	private final AtomicInteger started = new AtomicInteger();
 	private final ServerCallHandler<String, String> handler = (call, headers) -> {
 		started.incrementAndGet();
@@ -57,17 +57,18 @@ class JobLogCallLimitTest {
 
 	@Test
 	void refusesCallsOverTheLimitWithoutStartingThem() {
-		var limit = new JobLogCallLimit(1);
+		var limit = new ConcurrentCallLimit("Test listener", 1);
 		limit.interceptCall(call(), new Metadata(), handler);
 		var refused = call();
 		limit.interceptCall(refused, new Metadata(), handler);
 		assertEquals(1, started.get());
-		verify(refused).close(argThat(status -> status.getCode() == Status.Code.RESOURCE_EXHAUSTED), any());
+		verify(refused).close(argThat(status -> status.getCode() == Status.Code.RESOURCE_EXHAUSTED
+				&& "Test listener is at its concurrent call limit".equals(status.getDescription())), any());
 	}
 
 	@Test
 	void releasesEachPermitExactlyOnceAcrossCloseCompleteAndCancel() {
-		var limit = new JobLogCallLimit(1);
+		var limit = new ConcurrentCallLimit("Test listener", 1);
 		var captured = new ServerCall<?, ?>[1];
 		ServerCallHandler<String, String> capturing = (call, headers) -> {
 			captured[0] = call;
@@ -85,7 +86,7 @@ class JobLogCallLimitTest {
 
 	@Test
 	void cancelledCallsReleaseTheirPermit() {
-		var limit = new JobLogCallLimit(1);
+		var limit = new ConcurrentCallLimit("Test listener", 1);
 		limit.interceptCall(call(), new Metadata(), handler).onCancel();
 		var next = call();
 		limit.interceptCall(next, new Metadata(), handler);
@@ -95,7 +96,7 @@ class JobLogCallLimitTest {
 
 	@Test
 	void handlerFailuresReleaseTheirPermit() {
-		var limit = new JobLogCallLimit(1);
+		var limit = new ConcurrentCallLimit("Test listener", 1);
 		ServerCallHandler<String, String> failing = (call, headers) -> { throw new IllegalStateException("start failed"); };
 		assertThrows(IllegalStateException.class, () -> limit.interceptCall(call(), new Metadata(), failing));
 		var next = call();
@@ -105,7 +106,7 @@ class JobLogCallLimitTest {
 
 	@Test
 	void rejectsNonPositiveLimits() {
-		assertThrows(IllegalArgumentException.class, () -> new JobLogCallLimit(0));
+		assertThrows(IllegalArgumentException.class, () -> new ConcurrentCallLimit("Test listener", 0));
 	}
 
 	@Test
@@ -128,7 +129,7 @@ class JobLogCallLimitTest {
 		ExecutorService workers = Executors.newFixedThreadPool(2);
 		var name = InProcessServerBuilder.generateName();
 		var server = InProcessServerBuilder.forName(name).executor(workers)
-				.addService(ServerInterceptors.intercept(service, new JobLogCallLimit(1))).build().start();
+				.addService(ServerInterceptors.intercept(service, new ConcurrentCallLimit("Test listener", 1))).build().start();
 		var channel = InProcessChannelBuilder.forName(name).build();
 		try {
 			var client = JobLogServiceGrpc.newBlockingStub(channel).withDeadlineAfter(5, TimeUnit.SECONDS);
@@ -153,7 +154,7 @@ class JobLogCallLimitTest {
 
 	@Test
 	void rejectedExecutorTasksDoNotLeakPermits() throws Exception {
-		var limit = new JobLogCallLimit(2);
+		var limit = new ConcurrentCallLimit("Test listener", 2);
 		// One worker and one queue slot, so the call's next event is rejected once both are taken.
 		var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1));
 		var ready = new CountDownLatch(1);
@@ -233,7 +234,7 @@ class JobLogCallLimitTest {
 	}
 
 	/** The server transport reports the stream close on its own thread, possibly after the client has seen it. */
-	private static void awaitAvailablePermits(JobLogCallLimit limit, int expected) {
+	private static void awaitAvailablePermits(ConcurrentCallLimit limit, int expected) {
 		var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
 		while (limit.availablePermits() != expected && System.nanoTime() < deadline) {
 			LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));

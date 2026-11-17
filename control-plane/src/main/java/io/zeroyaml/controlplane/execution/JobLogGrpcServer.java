@@ -1,12 +1,8 @@
 package io.zeroyaml.controlplane.execution;
 
 import java.io.IOException;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
@@ -15,6 +11,8 @@ import io.grpc.Server;
 import io.grpc.ServerInterceptors;
 import io.grpc.TlsServerCredentials;
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
+import io.zeroyaml.controlplane.grpc.BoundedGrpcExecutor;
+import io.zeroyaml.controlplane.grpc.ConcurrentCallLimit;
 
 /**
  * Owns the optional mTLS log listener, isolated from the legacy Runner transport.
@@ -23,7 +21,7 @@ import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
  * executor. The retention lock and the Job lookup serialize most work, so more
  * threads would only wait. Each Runner sends one call at a time per Job and
  * retention holds at most 32 Jobs, so {@value #MAX_CONCURRENT_CALLS} concurrent
- * calls leave headroom; {@link JobLogCallLimit} refuses the rest with
+ * calls leave headroom; {@link ConcurrentCallLimit} refuses the rest with
  * {@code RESOURCE_EXHAUSTED}.</p>
  *
  * <p>The call limit runs on the executor, so a refused call still takes a queue
@@ -34,7 +32,7 @@ import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
  * connections at their {@value #MAX_CALLS_PER_CONNECTION}-stream cap; every
  * connection needs a valid Runner certificate. A task beyond the queue is
  * rejected, which resets that stream instead of queueing it. The rejected
- * events never reach the call, so {@link JobLogCallLimit#streamTracerFactory()}
+ * events never reach the call, so {@link ConcurrentCallLimit#streamTracerFactory()}
  * releases the permit when the transport closes the stream. Do not replace the
  * rejection with a caller-runs policy: the caller is the Netty event loop, and
  * a Job lookup there would stall every connection on that loop.</p>
@@ -66,13 +64,13 @@ class JobLogGrpcServer implements SmartLifecycle {
 		if (server != null || !properties.enabled()) {
 			return;
 		}
-		executor = newExecutor();
+		executor = BoundedGrpcExecutor.create("job-log-ingress-", WORKER_THREADS, MAX_QUEUED_TASKS);
 		try {
 			var credentials = TlsServerCredentials.newBuilder()
 					.keyManager(properties.certificate().toFile(), properties.privateKey().toFile())
 					.trustManager(properties.clientCa().toFile())
 					.clientAuth(TlsServerCredentials.ClientAuth.REQUIRE).build();
-			var callLimit = new JobLogCallLimit(MAX_CONCURRENT_CALLS);
+			var callLimit = new ConcurrentCallLimit("Job log ingress", MAX_CONCURRENT_CALLS);
 			// The last interceptor runs first: the call limit applies before authentication work.
 			server = NettyServerBuilder.forPort(properties.port(), credentials)
 					.executor(executor)
@@ -116,15 +114,4 @@ class JobLogGrpcServer implements SmartLifecycle {
 
 	@Override
 	public synchronized boolean isRunning() { return server != null; }
-
-	private static ExecutorService newExecutor() {
-		var count = new AtomicInteger();
-		ThreadFactory threads = task -> {
-			var thread = new Thread(task, "job-log-ingress-" + count.incrementAndGet());
-			thread.setDaemon(true);
-			return thread;
-		};
-		return new ThreadPoolExecutor(WORKER_THREADS, WORKER_THREADS, 0, TimeUnit.MILLISECONDS,
-				new ArrayBlockingQueue<>(MAX_QUEUED_TASKS), threads, new ThreadPoolExecutor.AbortPolicy());
-	}
 }

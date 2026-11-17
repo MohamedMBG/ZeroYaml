@@ -123,6 +123,24 @@ Control Plane version does not know is recorded as `UNKNOWN`, and a missing
 diagnostic is replaced with a standard one, because refusing a terminal report
 would leave the Job without an outcome.
 
+## Listener bounds
+
+Registration, heartbeat, and status reports share one plaintext listener
+(`zeroyaml.registration.port`). Its calls run on a fixed pool of 8 worker threads
+with a bounded queue of 256 tasks, not grpc-java's unbounded cached executor,
+because the listener is unauthenticated until Phase 6 transport security and
+status reports wait on the Job store. At most 64 calls run at once, and one
+connection may open at most 8 concurrent streams.
+
+Overload is answered, not queued without limit. A call over the limit returns
+`RESOURCE_EXHAUSTED`; a task beyond the queue is rejected and grpc-java resets
+that stream. In both cases the report changes nothing, so it is recovered like
+any other lost report (see [Retries](#retries)). The same `ConcurrentCallLimit`
+and `BoundedGrpcExecutor` bound the mTLS log listener (see
+[`runner-job-logs.md`](./runner-job-logs.md)). The limit runs on the pool, so a
+refused call still takes a queue slot for its start task; the queue holds four
+times the call limit to cover that.
+
 ## Retries
 
 Neither side retries a report today. The Runner sends one report per transition
