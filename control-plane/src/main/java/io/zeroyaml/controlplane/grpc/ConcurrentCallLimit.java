@@ -1,5 +1,6 @@
-package io.zeroyaml.controlplane.execution;
+package io.zeroyaml.controlplane.grpc;
 
+import java.util.Objects;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -14,11 +15,12 @@ import io.grpc.ServerStreamTracer;
 import io.grpc.Status;
 
 /**
- * Caps concurrent log ingress calls. A call over the limit is answered with
- * {@code RESOURCE_EXHAUSTED} at once instead of waiting for a worker, so a burst
- * never accumulates threads or queued work behind the retention lock and the
- * Job lookup. The Runner does not retry log chunks, so a refused chunk is
- * reported as lost in its final marker, like any other delivery failure.
+ * Caps concurrent calls on one gRPC listener. A call over the limit is answered
+ * with {@code RESOURCE_EXHAUSTED} at once instead of waiting for a worker, so a
+ * burst never accumulates threads or queued work behind a slow dependency such
+ * as the Job store or the log retention lock. Neither Runner client retries a
+ * refused call: a lost log chunk is reported in its final marker, and a lost
+ * status report is recovered by reconciliation.
  *
  * <p>A permit is released exactly once, when the call closes, completes, or is
  * cancelled, including when the next handler fails to start the call. Those
@@ -28,19 +30,25 @@ import io.grpc.Status;
  * {@link #streamTracerFactory()}: its tracer releases the permit when the
  * transport closes the stream, which does not depend on the executor.</p>
  */
-final class JobLogCallLimit implements ServerInterceptor {
-	private static final Context.Key<StreamCloseRelease> STREAM_CLOSE = Context.key("zeroyaml-job-log-stream-close");
+public final class ConcurrentCallLimit implements ServerInterceptor {
+	private static final Context.Key<StreamCloseRelease> STREAM_CLOSE = Context.key("zeroyaml-call-limit-stream-close");
 	private final Semaphore permits;
+	private final String refusalDescription;
 
-	JobLogCallLimit(int maxConcurrentCalls) {
+	/**
+	 * @param listenerName names the listener in the refusal sent to the caller, for example "Job log ingress"
+	 */
+	public ConcurrentCallLimit(String listenerName, int maxConcurrentCalls) {
 		if (maxConcurrentCalls < 1) {
 			throw new IllegalArgumentException("maxConcurrentCalls must be positive");
 		}
 		this.permits = new Semaphore(maxConcurrentCalls);
+		this.refusalDescription = Objects.requireNonNull(listenerName, "listenerName must not be null")
+				+ " is at its concurrent call limit";
 	}
 
 	/** Stream tracers that release a call's permit when the transport closes its stream. */
-	ServerStreamTracer.Factory streamTracerFactory() {
+	public ServerStreamTracer.Factory streamTracerFactory() {
 		return new ServerStreamTracer.Factory() {
 			@Override
 			public ServerStreamTracer newServerStreamTracer(String fullMethodName, Metadata headers) {
@@ -56,8 +64,7 @@ final class JobLogCallLimit implements ServerInterceptor {
 	public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(ServerCall<ReqT, RespT> call,
 			Metadata headers, ServerCallHandler<ReqT, RespT> next) {
 		if (!permits.tryAcquire()) {
-			call.close(Status.RESOURCE_EXHAUSTED.withDescription("Job log ingress is at its concurrent call limit"),
-					new Metadata());
+			call.close(Status.RESOURCE_EXHAUSTED.withDescription(refusalDescription), new Metadata());
 			return new ServerCall.Listener<>() { };
 		}
 		var released = new AtomicBoolean();

@@ -385,8 +385,9 @@ limit therefore also releases each permit when the transport closes the
 stream, through a stream tracer that does not depend on the pool, and a
 rejected task cannot leak a permit. A caller-runs policy is deliberately not
 used, because the caller is the Netty event loop. The Runner-facing
-registration/status server still uses the default executor; bounding it is
-tracked by #280. Invalid or missing
+registration/status server applies the same pool, call limit, and stream
+tracer through `BoundedGrpcExecutor` and `ConcurrentCallLimit`, with its own
+bounds (see [`job-status-contract.md`](./job-status-contract.md)). Invalid or missing
 client credentials fail the handshake. A verified certificate without the Runner
 URI SAN returns `UNAUTHENTICATED`; a different authenticated Runner ID returns
 `PERMISSION_DENIED`, without retaining content. Payload validation and assignment
