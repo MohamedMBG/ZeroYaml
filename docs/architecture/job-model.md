@@ -38,7 +38,9 @@ Legal transitions are:
 - `RUNNING -> FAILED`
 - `RUNNING -> CANCELLED`
 
-Terminal states cannot transition again. Invalid transitions raise
+Terminal states cannot transition again. `JobStatus.canTransitionTo` is the
+single source of these transitions, as defined by
+[execution model v1](./execution-model.md), and invalid transitions raise
 `InvalidJobTransitionException`. Timestamps must be ordered: creation must
 precede start, and start must precede completion when a start exists.
 

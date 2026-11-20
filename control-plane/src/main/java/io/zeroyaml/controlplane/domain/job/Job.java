@@ -1,11 +1,9 @@
 package io.zeroyaml.controlplane.domain.job;
 
 import java.time.Instant;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.Set;
 
 /**
  * Control Plane aggregate representing one executable unit of work.
@@ -14,15 +12,6 @@ import java.util.Set;
  * execute commands, persist itself, or interpret a workflow definition.</p>
  */
 public final class Job {
-
-	private static final Map<JobStatus, Set<JobStatus>> LEGAL_TRANSITIONS = Map.of(
-			JobStatus.CREATED, Set.of(JobStatus.QUEUED, JobStatus.CANCELLED),
-			JobStatus.QUEUED, Set.of(JobStatus.RUNNING, JobStatus.CANCELLED),
-			JobStatus.RUNNING, Set.of(JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED),
-			JobStatus.SUCCEEDED, Set.of(),
-			JobStatus.FAILED, Set.of(),
-			JobStatus.CANCELLED, Set.of()
-	);
 
 	private final JobId id;
 	private final RepositoryReference repository;
@@ -202,7 +191,7 @@ public final class Job {
 	private void transitionTo(JobStatus target, Instant transitionAt) {
 		Objects.requireNonNull(target, "target must not be null");
 		Objects.requireNonNull(transitionAt, "transitionAt must not be null");
-		if (!LEGAL_TRANSITIONS.get(status).contains(target)) {
+		if (!status.canTransitionTo(target)) {
 			throw new InvalidJobTransitionException(status, target);
 		}
 		if (transitionAt.isBefore(createdAt)) {

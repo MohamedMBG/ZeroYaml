@@ -124,6 +124,37 @@ class PipelineTest {
 		assertTrue(jobs.stream().allMatch(job -> job.status() == JobStatus.CREATED));
 	}
 
+	@Test
+	void acceptsDependenciesOnEarlierSteps() {
+		var build = step("build", "make");
+		var lint = step("lint", "make", "lint");
+		var test = new PipelineStep("test", build.execution(), List.of("build", "lint"));
+
+		var pipeline = new Pipeline(PipelineId.newId(), SOURCE, List.of(build, lint, test));
+
+		assertEquals(List.of("build", "lint"), pipeline.steps().get(2).dependsOn());
+	}
+
+	@Test
+	void rejectsDependencyOnLaterStep() {
+		var test = new PipelineStep("test", new ExecutionDefinition(List.of("make"), "."), List.of("build"));
+
+		var failure = assertThrows(IllegalArgumentException.class,
+				() -> new Pipeline(PipelineId.newId(), SOURCE, List.of(test, step("build", "make"))));
+
+		assertEquals("step test depends on build, which is not an earlier step", failure.getMessage());
+	}
+
+	@Test
+	void rejectsDependencyOnUnknownStep() {
+		var test = new PipelineStep("test", new ExecutionDefinition(List.of("make"), "."), List.of("compile"));
+
+		var failure = assertThrows(IllegalArgumentException.class,
+				() -> new Pipeline(PipelineId.newId(), SOURCE, List.of(step("build", "make"), test)));
+
+		assertEquals("step test depends on compile, which is not an earlier step", failure.getMessage());
+	}
+
 	private static List<PipelineStep> steps(int count) {
 		return IntStream.range(0, count).mapToObj(index -> step("step-" + index, "make")).toList();
 	}

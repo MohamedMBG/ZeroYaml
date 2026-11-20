@@ -16,7 +16,8 @@ import io.zeroyaml.controlplane.domain.pipeline.PipelineStep;
  * Infers the first supported pipeline from the files at a repository root.
  *
  * <p>Rule: a root {@code pom.xml} is a Maven project and yields two ordered steps,
- * {@code build} (package without tests) then {@code test}. The commands use
+ * {@code build} (package without tests) then {@code test}, which depends on
+ * {@code build}. The commands use
  * {@code sh mvnw} when a root {@code mvnw} wrapper exists, because a checkout may
  * not preserve the executable bit, and {@code mvn} otherwise.</p>
  *
@@ -67,14 +68,14 @@ public final class PipelineInferrer {
 	private static Pipeline mavenPipeline(RepositoryReference source, boolean hasWrapper) {
 		var maven = hasWrapper ? List.of("sh", MAVEN_WRAPPER) : List.of("mvn");
 		return new Pipeline(deterministicId(source), source, List.of(
-				step("build", maven, "--batch-mode", "-DskipTests", "package"),
-				step("test", maven, "--batch-mode", "test")));
+				step("build", List.of(), maven, "--batch-mode", "-DskipTests", "package"),
+				step("test", List.of("build"), maven, "--batch-mode", "test")));
 	}
 
-	private static PipelineStep step(String name, List<String> executable, String... arguments) {
+	private static PipelineStep step(String name, List<String> dependsOn, List<String> executable, String... arguments) {
 		var command = new ArrayList<>(executable);
 		command.addAll(List.of(arguments));
-		return new PipelineStep(name, new ExecutionDefinition(command, "."));
+		return new PipelineStep(name, new ExecutionDefinition(command, "."), dependsOn);
 	}
 
 	private static PipelineId deterministicId(RepositoryReference source) {
