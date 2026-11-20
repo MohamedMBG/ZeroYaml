@@ -3,6 +3,8 @@ package io.zeroyaml.controlplane.domain.pipeline;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -50,5 +52,28 @@ class PipelineStepTest {
 	@Test
 	void rejectsMissingExecution() {
 		assertThrows(NullPointerException.class, () -> new PipelineStep("build", null));
+	}
+
+	@Test
+	void hasNoDependenciesByDefaultAndCopiesSuppliedOnes() {
+		var dependencies = new ArrayList<>(List.of("build", "lint"));
+
+		var step = new PipelineStep("test", EXECUTION, dependencies);
+		dependencies.clear();
+
+		assertEquals(List.of(), new PipelineStep("build", EXECUTION).dependsOn());
+		assertEquals(List.of("build", "lint"), step.dependsOn());
+		assertThrows(UnsupportedOperationException.class, () -> step.dependsOn().add("deploy"));
+	}
+
+	@Test
+	void rejectsSelfDuplicateMalformedOrMissingDependencies() {
+		assertThrows(IllegalArgumentException.class, () -> new PipelineStep("test", EXECUTION, List.of("test")));
+		assertThrows(IllegalArgumentException.class,
+				() -> new PipelineStep("test", EXECUTION, List.of("build", "build")));
+		assertThrows(IllegalArgumentException.class, () -> new PipelineStep("test", EXECUTION, List.of("Build")));
+		assertThrows(NullPointerException.class, () -> new PipelineStep("test", EXECUTION, null));
+		assertThrows(NullPointerException.class,
+				() -> new PipelineStep("test", EXECUTION, Arrays.asList("build", null)));
 	}
 }

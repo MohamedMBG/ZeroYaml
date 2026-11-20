@@ -40,6 +40,8 @@ class PipelineInferrerTest {
 		assertEquals(List.of("sh", "mvnw", "--batch-mode", "-DskipTests", "package"),
 				steps.get(0).execution().command());
 		assertEquals(List.of("sh", "mvnw", "--batch-mode", "test"), steps.get(1).execution().command());
+		assertEquals(List.of(), steps.get(0).dependsOn());
+		assertEquals(List.of("build"), steps.get(1).dependsOn());
 		assertEquals(".", steps.get(0).execution().workingDirectory());
 		assertEquals(SOURCE, result.pipeline().source());
 	}

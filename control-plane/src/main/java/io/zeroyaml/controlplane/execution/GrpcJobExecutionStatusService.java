@@ -177,7 +177,8 @@ class GrpcJobExecutionStatusService extends JobExecutionStatusServiceGrpc.JobExe
 		};
 	}
 
-	private static JobLifecycleState toProtoState(JobStatus status) {
+	// Package-private so the contract test can prove the mapping mirrors runner.v1 exactly.
+	static JobLifecycleState toProtoState(JobStatus status) {
 		if (status == null) {
 			return JobLifecycleState.JOB_LIFECYCLE_STATE_UNSPECIFIED;
 		}

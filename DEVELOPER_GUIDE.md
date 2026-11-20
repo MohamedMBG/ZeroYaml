@@ -501,6 +501,7 @@ Start with the [Phase 1 architecture and operating contract](./docs/architecture
 then use the focused [Runner identity and registration contract](./docs/architecture/runner-identity.md),
 [Core Job Model](./docs/architecture/job-model.md),
 [Minimal pipeline model](./docs/architecture/pipeline-model.md),
+[Execution model v1](./docs/architecture/execution-model.md),
 [Pipeline Job creation](./docs/architecture/pipeline-job-creation.md),
 [Job and pipeline run persistence](./docs/architecture/job-persistence.md),
 [Job lifecycle events](./docs/architecture/job-lifecycle-events.md),

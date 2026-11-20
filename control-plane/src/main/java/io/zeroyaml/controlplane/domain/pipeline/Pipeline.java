@@ -15,16 +15,19 @@ import io.zeroyaml.controlplane.domain.job.RepositoryReference;
  * a workflow language: there are no triggers, matrices, reusable workflows, secret
  * definitions, or deployment graphs.</p>
  *
- * <p>Ordering rules: the plan orders steps one after another exactly as supplied;
- * executing them in that order belongs to the application boundary. Identity
- * rules: a pipeline is referenced by its {@link PipelineId}, and a step by its
- * name, which is unique within the pipeline. As an immutable value, two instances
- * are equal only when identity, source, and steps all match.</p>
+ * <p>Ordering rules: the plan keeps steps exactly in the supplied order, and every
+ * dependency of a step must name an earlier step. The order is therefore always a
+ * valid execution order and the dependencies can never form a cycle; executing
+ * the steps belongs to the application boundary. Identity rules: a pipeline is
+ * referenced by its {@link PipelineId}, and a step by its name, which is unique
+ * within the pipeline. As an immutable value, two instances are equal only when
+ * identity, source, and steps all match.</p>
  *
  * <p>Construction is the validation point. A pipeline with no steps, more than
- * 50 steps, or two steps with the same name is rejected with an
- * {@link IllegalArgumentException}, and a missing step with a
- * {@link NullPointerException}, so an existing instance is always executable.</p>
+ * 50 steps, two steps with the same name, or a dependency that does not name an
+ * earlier step is rejected with an {@link IllegalArgumentException}, and a
+ * missing step with a {@link NullPointerException}, so an existing instance is
+ * always executable.</p>
  *
  * @param id pipeline identity
  * @param source repository and immutable revision every step runs against
@@ -49,6 +52,12 @@ public record Pipeline(PipelineId id, RepositoryReference source, List<PipelineS
 		}
 		var names = new HashSet<String>();
 		for (var step : steps) {
+			for (var dependency : step.dependsOn()) {
+				if (!names.contains(dependency)) {
+					throw new IllegalArgumentException(
+							"step " + step.name() + " depends on " + dependency + ", which is not an earlier step");
+				}
+			}
 			if (!names.add(step.name())) {
 				throw new IllegalArgumentException("step names must be unique: " + step.name());
 			}

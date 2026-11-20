@@ -24,6 +24,7 @@ types live in `io.zeroyaml.controlplane.domain.pipeline`.
 | Steps | Ordered `List<PipelineStep>`, at least one and at most 50 |
 | Step identity | `PipelineStep.name`, unique within the pipeline |
 | Step execution | The Job model's `ExecutionDefinition`: argument list plus working directory |
+| Step dependencies | `PipelineStep.dependsOn`: names of earlier steps whose Jobs must succeed first, possibly empty |
 | Outcome | `PipelineOutcome`: a `PipelineStatus` plus the `PipelineFailure` of a failed pipeline or the cancelled step of a cancelled one |
 
 A step reuses `ExecutionDefinition` and a pipeline reuses `RepositoryReference`,
@@ -51,11 +52,16 @@ object). An existing `Pipeline` is therefore always executable.
   case-folded, so `unit-test` and `unit_test` are different steps.
 - A step's command and working directory follow the Job model's
   `ExecutionDefinition` rules.
+- A dependency follows the step name format, is listed at most once, does not
+  name its own step, and names an earlier step of the pipeline. The rejection
+  message names the step and the dependency.
 
 ## Ordering and identity
 
-The plan orders steps one after another as supplied; executing them in that
-order belongs to the application boundary, not this model. The order is
+The plan orders steps one after another as supplied; executing them belongs to
+the application boundary, not this model. Because every dependency names an
+earlier step, the supplied order is always a valid execution order and the
+dependencies cannot form a cycle. The order is
 preserved exactly: it is never sorted by name and never reordered. The supplied
 list is copied, so a later change to it cannot alter the pipeline, and the
 exposed list is unmodifiable. A pipeline is referenced by its `PipelineId` and a
@@ -82,9 +88,10 @@ step that ended it. Its factories are the only way to create one:
 A failed or cancelled step must belong to that pipeline, which also guarantees
 it follows the `PipelineStep` name format. Any other combination is rejected
 with `IllegalArgumentException`. An outcome keeps only the `PipelineId`, so
-comparing or storing it never walks the plan. These are value types only. The
-rules that move a pipeline between states belong to the Phase 3 pipeline
-lifecycle work.
+comparing or storing it never walks the plan. These are value types only.
+`PipelineStatus.canTransitionTo` defines the allowed run transitions of
+[execution model v1](./execution-model.md); driving them from Job outcomes
+belongs to later Phase 3 work (#170, #171).
 
 ## Out of scope
 
