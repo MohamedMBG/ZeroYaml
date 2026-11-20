@@ -54,7 +54,10 @@ Each execution gets a random 12-character execution ID and three Docker
 resources named after it and labelled `io.zeroyaml.managed=true` and
 `io.zeroyaml.execution-id=<id>`:
 
-1. `zeroyaml-<id>-workspace`, a Docker volume mounted at `/workspace`.
+1. `zeroyaml-<id>-workspace`, a Docker volume mounted at `/workspace`. It
+   also carries `io.zeroyaml.workspace-claim=<token>`, a random 32-character
+   token that only the creating execution knows (see
+   [Workspace isolation](#workspace-isolation)).
 2. `zeroyaml-<id>-checkout`, a container from `ZEROYAML_RUNNER_CHECKOUT_IMAGE`
    (default `alpine/git:v2.49.1`) that runs `git init`, a depth-1 `git fetch` of
    the one revision, and a detached checkout into the volume.
@@ -75,6 +78,33 @@ locations:
 
 Every other scheme, including `ssh://` and git's `ext::` transport, is refused.
 
+## Workspace isolation
+
+Concurrent executions never read or write each other's workspace:
+
+- Each container mounts exactly one volume at `/workspace`: the workspace of
+  its own execution. No container mounts a host directory other than the
+  read-only `/source` of a `file://` checkout, and the Job container mounts no
+  host path at all.
+- `docker volume create` succeeds for a name that already exists and keeps the
+  first creator's labels, so a unique name alone does not prove ownership. A
+  colliding execution ID, or a volume left by an execution that never cleaned
+  up, would otherwise hand one execution another execution's files. Right after
+  the create, the Runner therefore reads the claim label back with
+  `docker volume inspect` before any container mounts the volume:
+
+  | Claim read back | Result |
+  | --- | --- |
+  | The execution's own token | The execution continues. |
+  | Another token or no token | `FAILED`, `EXECUTION_ERROR`; no container is created and the volume is neither mounted nor removed. |
+  | The inspect itself failed | `FAILED`, `EXECUTION_ERROR` (or `CANCELLED`/`TIMEOUT` if the execution was stopped); the volume is left, labelled, for manual cleanup because its owner is unknown. |
+
+  The claim is read with a context detached from the execution, like removal,
+  so a cancellation that arrives during the create still lets the execution
+  verify and remove its own volume.
+- The removal by name that follows a failed volume create applies the same
+  check, so a lost-response cleanup never deletes another execution's workspace.
+
 ## Resource bounds
 
 Every container runs with:
@@ -92,8 +122,8 @@ checkout and typical builds need network access.
 ## Lifecycle and cleanup
 
 The Runner drives the Docker CLI with explicit argument vectors: `volume
-create`, then for each container `create`, `start`, `wait`, and `rm --force`,
-and finally `volume rm --force`. Containers are removed explicitly rather than
+create` and `volume inspect` (the claim check), then for each container
+`create`, `start`, `wait`, and `rm --force`, and finally `volume rm --force`. Containers are removed explicitly rather than
 with `--rm`, so `docker wait` can always read the exit code first.
 
 Every resource is removed before the execution returns, whether the command
@@ -172,9 +202,18 @@ execution, so anything left behind stays attributable and removable.
 ## Verification
 
 The default `go test ./...` run covers request mapping, Docker argument
-construction, lifecycle ordering, cleanup on every outcome, and status mapping
-with a scripted Docker CLI. Tests that start real containers are opt-in, because
-they need a Docker daemon, a git binary, and the pinned images:
+construction, lifecycle ordering, the workspace claim check, cleanup on every
+outcome, and status mapping with a scripted Docker CLI. Tests that start real
+containers are opt-in, because they need a Docker daemon, a git binary, and the
+pinned images. They verify against a real daemon that:
+
+- no container or volume of an execution remains after success, a non-zero
+  exit, a timeout, a cancellation while the Job container runs, and a failed
+  checkout;
+- two concurrent executions each see only their own workspace, and each Job
+  container mounts only its own workspace volume;
+- an execution whose workspace volume name is already taken creates no
+  container and leaves the existing volume in place.
 
 ```powershell
 Push-Location runner

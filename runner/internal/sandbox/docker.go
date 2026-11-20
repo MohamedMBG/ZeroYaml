@@ -26,6 +26,13 @@ const (
 	managedLabel       = "io.zeroyaml.managed=true"
 	executionLabelName = "io.zeroyaml.execution-id"
 
+	// workspaceClaimLabelName carries a random token that only the creating
+	// execution knows. docker volume create succeeds for a name that already
+	// exists and keeps the first creator's labels, so reading the token back is
+	// the only way to prove that a workspace volume was not already in use by
+	// another execution.
+	workspaceClaimLabelName = "io.zeroyaml.workspace-claim"
+
 	// checkoutScript fetches exactly one revision into the empty workspace.
 	// The location and revision arrive as positional parameters, never as
 	// script text, so request content is not parsed by the shell. The "--"
@@ -76,11 +83,22 @@ func newResourceNames(executionID string) resourceNames {
 	}
 }
 
-func volumeCreateArgs(names resourceNames) []string {
+func volumeCreateArgs(names resourceNames, claim string) []string {
 	return []string{
 		"volume", "create",
 		"--label", managedLabel,
 		"--label", executionLabelName + "=" + names.executionID,
+		"--label", workspaceClaimLabelName + "=" + claim,
+		names.volume,
+	}
+}
+
+// volumeClaimArgs prints the claim token of the workspace volume. A volume
+// without the label prints "<no value>", which never matches a token.
+func volumeClaimArgs(names resourceNames) []string {
+	return []string{
+		"volume", "inspect",
+		"--format", `{{index .Labels "` + workspaceClaimLabelName + `"}}`,
 		names.volume,
 	}
 }
