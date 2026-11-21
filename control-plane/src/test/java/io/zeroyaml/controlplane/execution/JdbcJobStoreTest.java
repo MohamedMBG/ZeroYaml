@@ -83,8 +83,9 @@ class JdbcJobStoreTest {
 		assertEquals(List.of(build, test), store.findByRepository(SOURCE.location()));
 		assertEquals(List.of(build, test), store.findBySource(SOURCE));
 		assertEquals(build, store.findPipelineJob(build.jobId()).orElseThrow());
-		assertEquals(List.of(new JobStore.PipelineStepStatus(build, JobStatus.CREATED),
-				new JobStore.PipelineStepStatus(test, JobStatus.CREATED)), store.findPipelineStepStatuses(PIPELINE_ID, SOURCE));
+		assertEquals(List.of(new JobStore.PipelineStepStatus(build, JobStatus.CREATED, List.of()),
+				new JobStore.PipelineStepStatus(test, JobStatus.CREATED, List.of())),
+				store.findPipelineStepStatuses(PIPELINE_ID, SOURCE));
 		assertEquals(SOURCE, store.find(build.jobId()).orElseThrow().repository());
 		assertEquals(List.of("mvn", "package"), store.find(build.jobId()).orElseThrow().execution().command());
 		assertEquals(1, jdbc.sql("SELECT count(*) FROM pipeline_run").query(Integer.class).single());
@@ -230,6 +231,70 @@ class JdbcJobStoreTest {
 	}
 
 	@Test
+	void stepDependenciesSurviveANewStoreInstanceAndFollowTheLatestPlan() {
+		var build = new PipelineStep("build", new ExecutionDefinition(List.of("mvn", "package"), "."));
+		var lint = new PipelineStep("lint", new ExecutionDefinition(List.of("mvn", "checkstyle:check"), "."));
+		var test = new PipelineStep("test", new ExecutionDefinition(List.of("mvn", "test"), "."), List.of("build"));
+		var service = new PipelineJobCreationService(store, event -> { }, Clock.fixed(NOW, ZoneOffset.UTC));
+		service.createJobs(new Pipeline(PIPELINE_ID, SOURCE, List.of(build, test)));
+
+		assertEquals(List.of(List.of(), List.of("build")), dependencies(freshStore()));
+
+		var replanned = new PipelineStep("test", test.execution(), List.of("build", "lint"));
+		service.createJobs(new Pipeline(PIPELINE_ID, SOURCE, List.of(build, lint, replanned)));
+
+		assertEquals(List.of(List.of(), List.of(), List.of("build", "lint")), dependencies(freshStore()));
+		assertEquals(3, jdbc.sql("SELECT count(*) FROM job").query(Integer.class).single());
+	}
+
+	@Test
+	void aJobRecordedOutsideAPipelineGetsItsDependenciesWhenItIsLinked() {
+		var test = new PipelineStep("test", new ExecutionDefinition(List.of("mvn", "test"), "."), List.of("build"));
+		var pipeline = new Pipeline(PIPELINE_ID, SOURCE, List.of(
+				new PipelineStep("build", new ExecutionDefinition(List.of("mvn", "package"), ".")), test));
+		var translated = new io.zeroyaml.controlplane.domain.pipeline.PipelineJobTranslator().translate(pipeline, NOW);
+		store.recordIfAbsent(translated.get(1).job());
+		assertTrue(jdbc.sql("SELECT step_dependencies IS NULL FROM job").query(Boolean.class).single());
+
+		new PipelineJobCreationService(store, event -> { }, Clock.fixed(NOW, ZoneOffset.UTC)).createJobs(pipeline);
+
+		assertEquals(List.of(List.of(), List.of("build")), dependencies(freshStore()));
+	}
+
+	@Test
+	void aSkippedJobSurvivesANewStoreInstance() {
+		var id = new PipelineJobCreationService(store, event -> { }, Clock.fixed(NOW, ZoneOffset.UTC))
+				.createJobs(pipeline(SOURCE)).jobs().get(1).jobId();
+
+		store.update(id, job -> { job.skip(NOW.plusSeconds(5)); return job.status(); });
+
+		var restored = freshStore().find(id).orElseThrow();
+		assertEquals(JobStatus.SKIPPED, restored.status());
+		assertEquals(NOW.plusSeconds(5), restored.completedAt().orElseThrow());
+		assertTrue(restored.queuedAt().isEmpty());
+		assertTrue(restored.startedAt().isEmpty());
+		assertTrue(restored.runnerAssignment().isEmpty());
+		assertTrue(restored.failure().isEmpty());
+		assertEquals(JobStatus.SKIPPED, freshStore().findPipelineStepStatuses(PIPELINE_ID, SOURCE).get(1).status());
+	}
+
+	@Test
+	void theSchemaRefusesInconsistentSkippedJobsAndDependencyLists() {
+		var creation = new PipelineJobCreationService(store, event -> { }, Clock.fixed(NOW, ZoneOffset.UTC))
+				.createJobs(pipeline(SOURCE));
+		var skipped = creation.jobs().get(0).jobId();
+		var other = creation.jobs().get(1).jobId();
+		store.update(skipped, job -> { job.skip(NOW.plusSeconds(1)); return job.status(); });
+
+		assertRefused("UPDATE job SET queued_at = completed_at WHERE id = :id", skipped);
+		assertRefused("UPDATE job SET runner_id = 'runner-1', runner_instance_id = 'instance-1' WHERE id = :id", skipped);
+		assertRefused("UPDATE job SET completed_at = NULL WHERE id = :id", skipped);
+		assertRefused("UPDATE job SET step_dependencies = NULL WHERE id = :id", other);
+		assertRefused("UPDATE job SET step_dependencies = '{\"build\": true}'::jsonb WHERE id = :id", other);
+		assertRefused("UPDATE job SET status = 'PAUSED' WHERE id = :id", other);
+	}
+
+	@Test
 	void pipelineLookupSeparatesSourcesSharingAnIdentity() {
 		var service = new PipelineJobCreationService(store, event -> { }, Clock.fixed(NOW, ZoneOffset.UTC));
 		var original = service.createJobs(pipeline(SOURCE));
@@ -320,6 +385,16 @@ class JdbcJobStoreTest {
 		recorder.record(JobStatusReport.succeeded(id, RUNNER, NOW.plusSeconds(2), NOW.plusSeconds(3), 0));
 
 		assertEquals(List.of("ACCEPTED:CREATED", "ACCEPTED:CREATED", "STARTED:RUNNING", "SUCCEEDED:SUCCEEDED"), observed);
+	}
+
+	private List<List<String>> dependencies(JdbcJobStore source) {
+		return source.findPipelineStepStatuses(PIPELINE_ID, SOURCE).stream()
+				.map(JobStore.PipelineStepStatus::dependsOn).toList();
+	}
+
+	private void assertRefused(String statement, JobId id) {
+		assertThrows(DataIntegrityViolationException.class,
+				() -> jdbc.sql(statement).param("id", id.value()).update(), statement);
 	}
 
 	private JdbcJobStore freshStore() {

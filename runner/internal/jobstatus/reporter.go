@@ -38,6 +38,7 @@ const (
 	LifecycleSucceeded   LifecycleState = "succeeded"
 	LifecycleFailed      LifecycleState = "failed"
 	LifecycleCancelled   LifecycleState = "cancelled"
+	LifecycleSkipped     LifecycleState = "skipped"
 )
 
 // Result is the Control Plane's answer to one report.
@@ -261,6 +262,8 @@ func lifecycleFromProto(state runnerv1.JobLifecycleState) LifecycleState {
 		return LifecycleFailed
 	case runnerv1.JobLifecycleState_JOB_LIFECYCLE_CANCELLED:
 		return LifecycleCancelled
+	case runnerv1.JobLifecycleState_JOB_LIFECYCLE_SKIPPED:
+		return LifecycleSkipped
 	default:
 		return LifecycleUnspecified
 	}

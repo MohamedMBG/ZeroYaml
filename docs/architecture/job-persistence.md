@@ -13,7 +13,7 @@ earlier Jobs retain their definition and lifecycle state, as specified by issue
 #23. When unchanged steps move, their stored positions follow the latest
 recorded request for each step. The run row groups these Jobs and does not
 claim a separate pipeline outcome. Pipeline orchestration (#30) dispatches the steps
-in order; see [Pipeline orchestration](./pipeline-orchestration.md). The later pipeline lifecycle work decides how to resolve superseded or
+in dependency order; see [Pipeline orchestration](./pipeline-orchestration.md). The later pipeline lifecycle work decides how to resolve superseded or
 stopped plans.
 
 `JdbcJobStore.update` locks one Job row with `SELECT ... FOR UPDATE` and applies
@@ -43,3 +43,16 @@ rollback to application code that predates issue #28 leaves the new tables
 unused; dropping them would discard run history, so any schema rollback needs
 an explicit export or retention decision first. PostgreSQL remains the only
 required state service for this feature; Redis and Kafka are not involved.
+
+`V4__add_step_dependencies_and_skipped_jobs.sql` (#170) adds
+`step_dependencies`, a JSON array of step names, to every pipeline Job, and a
+null value to every Job outside a pipeline. `findPipelineStepStatuses` returns
+it with each step's status, so dependency-aware scheduling decides from the
+database alone after a restart. Like the step position, the dependencies of a
+Job follow the latest recorded request for its step. The migration backfills
+existing pipeline Jobs so each one depends on every other step recorded before
+it in its run, which is the strict order those runs were executed in. It also
+allows the `SKIPPED` status: a skipped Job has a completion time but no queue
+time, start time, Runner assignment, or failure. Rolling back requires changing
+`SKIPPED` rows to `CANCELLED` and dropping `step_dependencies` before restoring
+the V3 constraints.

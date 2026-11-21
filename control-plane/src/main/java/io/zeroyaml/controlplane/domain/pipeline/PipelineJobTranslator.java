@@ -12,7 +12,7 @@ import io.zeroyaml.controlplane.domain.job.JobId;
 
 /**
  * Turns a {@link Pipeline} into the executable Jobs that carry it out: one Job
- * per step, in step order.
+ * per step, in step order, each carrying its step's dependencies.
  *
  * <p>Each Job runs the step's {@link PipelineStep#execution()} against the
  * pipeline's {@link Pipeline#source()}, so the repository location and revision
@@ -50,7 +50,7 @@ public final class PipelineJobTranslator {
 		var position = 1;
 		for (var step : pipeline.steps()) {
 			var job = Job.create(jobIdFor(pipeline, step), pipeline.source(), step.execution(), createdAt);
-			jobs.add(new PipelineJob(pipeline.id(), position++, step.name(), job));
+			jobs.add(new PipelineJob(pipeline.id(), position++, step.name(), job, step.dependsOn()));
 		}
 		return List.copyOf(jobs);
 	}

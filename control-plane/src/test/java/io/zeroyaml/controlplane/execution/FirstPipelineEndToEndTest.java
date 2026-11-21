@@ -257,7 +257,7 @@ class FirstPipelineEndToEndTest {
 			var states = jdbc.queryForList(
 					"SELECT status FROM job WHERE revision = ? ORDER BY step_position", String.class, revision);
 			return states.size() == 2
-					&& states.stream().allMatch(state -> List.of("SUCCEEDED", "FAILED", "CANCELLED").contains(state));
+					&& states.stream().allMatch(state -> List.of("SUCCEEDED", "FAILED", "CANCELLED", "SKIPPED").contains(state));
 		}, runnerOutput);
 		var rows = jdbc.queryForList(SELECT_JOBS, revision);
 		var context = diagnostics(rows, runnerOutput);

@@ -2,6 +2,7 @@ package io.zeroyaml.controlplane.execution;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -43,7 +44,7 @@ public interface JobStore {
 	 */
 	Job recordIfAbsent(Job job);
 
-	/** Records a Job and its link to the pipeline step that created it. */
+	/** Records a Job, its link to the pipeline step that created it, and the step's dependencies. */
 	Job recordIfAbsent(PipelineJob pipelineJob);
 
 	/** Returns Jobs in step order for one pipeline identity and repository revision. */
@@ -55,8 +56,23 @@ public interface JobStore {
 	/** Looks up the pipeline link for a single Job. */
 	Optional<PipelineJobReference> findPipelineJob(JobId jobId);
 
-	/** A point-in-time step status; mutations still use {@link #update}. */
-	record PipelineStepStatus(PipelineJobReference reference, JobStatus status) { }
+	/**
+	 * A point-in-time step status with the step's recorded dependencies, which is
+	 * what a scheduling decision needs; mutations still use {@link #update}.
+	 *
+	 * @param reference the step's Job
+	 * @param status current status of the Job
+	 * @param dependsOn names of the steps that must succeed before the Job may start; copied
+	 *        defensively
+	 */
+	record PipelineStepStatus(PipelineJobReference reference, JobStatus status, List<String> dependsOn) {
+
+		public PipelineStepStatus {
+			Objects.requireNonNull(reference, "reference must not be null");
+			Objects.requireNonNull(status, "status must not be null");
+			dependsOn = List.copyOf(dependsOn);
+		}
+	}
 
 	/** Returns pipeline Jobs for a repository, ordered by creation time and step. */
 	List<PipelineJobReference> findByRepository(URI location);

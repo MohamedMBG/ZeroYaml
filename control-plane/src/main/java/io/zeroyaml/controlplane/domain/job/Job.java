@@ -188,6 +188,18 @@ public final class Job {
 		this.completedAt = completedAt;
 	}
 
+	/**
+	 * Records that a created Job will never run because a pipeline step it
+	 * depends on ended without success. The Job was never queued, so it has no
+	 * Runner assignment, start time, or failure; only its completion time is set.
+	 *
+	 * @param skippedAt when the scheduling decision was made
+	 */
+	public void skip(Instant skippedAt) {
+		transitionTo(JobStatus.SKIPPED, skippedAt);
+		this.completedAt = skippedAt;
+	}
+
 	private void transitionTo(JobStatus target, Instant transitionAt) {
 		Objects.requireNonNull(target, "target must not be null");
 		Objects.requireNonNull(transitionAt, "transitionAt must not be null");
@@ -197,7 +209,7 @@ public final class Job {
 		if (transitionAt.isBefore(createdAt)) {
 			throw new IllegalArgumentException("transition timestamp must not be before createdAt");
 		}
-		if (target == JobStatus.SUCCEEDED || target == JobStatus.FAILED || target == JobStatus.CANCELLED) {
+		if (target.isTerminal()) {
 			if (startedAt != null && transitionAt.isBefore(startedAt)) {
 				throw new IllegalArgumentException("completion timestamp must not be before startedAt");
 			}

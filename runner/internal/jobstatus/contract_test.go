@@ -29,7 +29,7 @@ func TestLifecycleMappingCoversEveryRunnerV1State(t *testing.T) {
 		}
 		mapped[got] = true
 	}
-	if len(mapped) != 6 {
-		t.Errorf("mapped %d distinct lifecycle states, want the 6 states of execution model v1", len(mapped))
+	if len(mapped) != 7 {
+		t.Errorf("mapped %d distinct lifecycle states, want the 7 states of execution model v1", len(mapped))
 	}
 }

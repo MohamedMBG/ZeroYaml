@@ -3,7 +3,7 @@
 Pipeline orchestration joins the Phase 2 building blocks into the first
 end-to-end scenario (#30). A verified GitHub push for a connected repository
 becomes an inferred pipeline. Its steps become Jobs, and each Job is dispatched
-to a healthy Runner in order. The Runner executes the Job in Docker and reports
+to a healthy Runner once the steps it depends on succeeded (#170). The Runner executes the Job in Docker and reports
 status and logs back.
 
 ```text
@@ -19,7 +19,7 @@ POST /webhooks/github ──> NormalizingGitHubWebhookDeliveryHandler ──> Re
 ```
 
 The Control Plane decides which pipeline runs, where each step runs, and when
-the next step starts. The Runner executes only the Job it is given.
+each step starts. The Runner executes only the Job it is given.
 
 The code lives in `io.zeroyaml.controlplane.orchestration`. The GitHub listing
 lives in `io.zeroyaml.controlplane.github.repository`.
@@ -43,7 +43,7 @@ The push is then processed on the orchestrator's worker thread:
    ambiguous repository is logged and records no Job.
 4. `PipelineJobCreationService` records one Job per step. A redelivered push
    records nothing new, because Job creation is idempotent.
-5. `PipelineProgression` dispatches the first step that is ready.
+5. `PipelineProgression` dispatches every step that is ready.
 
 ## Repository listing
 
@@ -88,20 +88,33 @@ can point the template at a directory the Runner serves. For example,
 
 ## Step progression
 
-`PipelineProgression` reconciles a pipeline against its recorded Jobs instead
-of remembering what it did. It walks the steps in order:
+`PipelineProgression` reconciles a pipeline against its recorded Jobs and
+dependencies instead of remembering what it did. It reads every step's status
+and dependencies, computes the
+[dependency-aware schedule](./execution-model.md#dependency-aware-scheduling),
+and acts on each decision:
 
-| Recorded step state | Action |
+| Decision | Action |
 | --- | --- |
-| `SUCCEEDED` | Continue with the next step. |
-| `CREATED`, or `QUEUED` without an assignment | Dispatch this step, then stop. |
-| `QUEUED` with an assignment | Stop; the dispatch outcome is still open. |
-| `RUNNING` | Stop; the step is still executing. |
-| `FAILED` or `CANCELLED` | Cancel every later step that has not started. |
+| `Skip` | Record the Job as `SKIPPED` and log the dependencies that did not succeed. |
+| `Ready`, Job `CREATED` or `QUEUED` without an assignment | Dispatch the step. |
+| `Ready`, Job `QUEUED` with an assignment | Nothing; the dispatch outcome is still open. |
+| `Blocked` | Nothing; the completion of a pending dependency runs progression again. |
+| `Running` or `Settled` | Nothing. |
 
-When every step has succeeded, the pipeline is logged as finished. A step is
-therefore dispatched only after the previous step `SUCCEEDED`, and running
-progression twice dispatches nothing twice.
+Skips are recorded first and dispatches follow, both in step order. Every ready
+step is dispatched in the same call, so steps that do not depend on each other
+run in parallel when Runner capacity allows. When a dispatch is abandoned, its
+Job is cancelled and the schedule is computed again, so the steps that depend
+on it are skipped in the same call.
+
+A step is therefore dispatched only after every step it depends on
+`SUCCEEDED`, and a failed, cancelled, or skipped step stops only the steps that
+depend on it. For the inferred Maven pipeline, where `test` depends on `build`,
+this is the same order as before #170. When nothing is left to execute, the
+pipeline is logged as finished with the number of succeeded, failed,
+cancelled, and skipped steps. Running progression twice dispatches nothing
+twice and skips nothing twice.
 
 Progression runs after a push, and after `JobExecutionStatusRecorder` commits a
 terminal status for a Job. The recorder calls `JobCompletionListener` once the
@@ -131,10 +144,10 @@ arrives is accepted. The outcome is then handled as follows:
 | Outcome | Result |
 | --- | --- |
 | Accepted by the assigned Runner process | Job stays `QUEUED` until the running report. |
-| Accepted by any other Runner process | Job and later steps are cancelled. |
+| Accepted by any other Runner process | Job is cancelled; the steps that depend on it are skipped. |
 | Rejected as Runner unavailable | Job stays queued without an assignment; a later progression can retry. |
-| Other Runner rejection | Job and later steps are cancelled; the rejection reason is logged. |
-| `INVALID_ARGUMENT` or `FAILED_PRECONDITION` | Job and later steps are cancelled; the Runner can never run this Job. |
+| Other Runner rejection | Job is cancelled and the rejection reason is logged; the steps that depend on it are skipped. |
+| `INVALID_ARGUMENT` or `FAILED_PRECONDITION` | Job is cancelled, because the Runner can never run it; the steps that depend on it are skipped. |
 | Any other failure, such as `DEADLINE_EXCEEDED` or `UNAVAILABLE` | Job stays `QUEUED` and assigned and is not resent, because the Runner may already be executing it. |
 
 Each cancellation is logged with the Job, pipeline, step, and reason.
@@ -177,7 +190,10 @@ pending when the process exits can be lost.
 
 The Runner frees its concurrency slot before it sends the terminal report.
 Without that, dispatching the next step could be refused as busy by the
-execution that just finished. See
+execution that just finished. When several steps are ready at once and the
+Runner has fewer free slots, it refuses the rest as unavailable; those Jobs stay
+queued without an assignment and the five-second retry scan dispatches them as
+slots free up. See
 [Runner execution sandbox](./runner-execution-sandbox.md).
 
 ## First scenario
@@ -192,7 +208,7 @@ For a repository with a root `pom.xml`, inference (#22) produces two steps:
 The steps run in the Runner's configured Job image. The default `alpine:3.22`
 has no JDK, so set `ZEROYAML_RUNNER_JOB_IMAGE` to a pinned image that provides
 one. A command that exits non-zero fails its Job with `NON_ZERO_EXIT` and the
-exit code, and the `test` step is cancelled.
+exit code, and the `test` step, which depends on `build`, is skipped.
 
 `PipelineOrchestratorTest` covers this scenario in-process. It replaces only the
 repository provider, the Runner selector, and the Runner transport. The run
@@ -212,5 +228,7 @@ against a real Runner and Docker is the automated test of #31.
 - `ReportJobStatus` is still unauthenticated. A sender that knows a dispatched
   Job's `runner_id` and `instance_id` can report status for it. Transport
   authentication is Phase 6 work.
-- Steps run strictly one after another. Parallel steps, retries, and
-  superseding an earlier push are later-phase work.
+- Independent steps are dispatched together, but there is one configured
+  Runner endpoint, so parallelism is bounded by that Runner's concurrency.
+  Retries, timeouts, and superseding an earlier push are later work (#171 and
+  later phases).

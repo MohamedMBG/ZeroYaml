@@ -92,5 +92,8 @@ correlate the Jobs with the push that produced them.
 
 ## Out of scope
 
-Runner selection, gRPC dispatch, Docker execution, sequencing the execution of
-later steps on earlier results, and pipeline visualization.
+Runner selection, gRPC dispatch, Docker execution, scheduling steps on the
+results of their dependencies (see
+[dependency-aware scheduling](./execution-model.md#dependency-aware-scheduling)),
+and pipeline visualization. The service records each step's dependencies with
+its Job so that scheduling can read them back.

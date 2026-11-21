@@ -190,6 +190,7 @@ class GrpcJobExecutionStatusService extends JobExecutionStatusServiceGrpc.JobExe
 			case SUCCEEDED -> JobLifecycleState.JOB_LIFECYCLE_SUCCEEDED;
 			case FAILED -> JobLifecycleState.JOB_LIFECYCLE_FAILED;
 			case CANCELLED -> JobLifecycleState.JOB_LIFECYCLE_CANCELLED;
+			case SKIPPED -> JobLifecycleState.JOB_LIFECYCLE_SKIPPED;
 		};
 	}
 }

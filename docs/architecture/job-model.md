@@ -23,22 +23,28 @@ generic workflow or YAML replacement DSL.
 
 ```text
 CREATED ──> QUEUED ──> RUNNING ──> SUCCEEDED
-   │           │          │
-   └───────────┴──────────┼──────> CANCELLED
-                          └──────> FAILED
+   │  │        │          │
+   │  └────────┴──────────┼──────> CANCELLED
+   │                      └──────> FAILED
+   └─────────────────────────────> SKIPPED
 ```
 
 Legal transitions are:
 
 - `CREATED -> QUEUED`
 - `CREATED -> CANCELLED`
+- `CREATED -> SKIPPED`
 - `QUEUED -> RUNNING`
 - `QUEUED -> CANCELLED`
 - `RUNNING -> SUCCEEDED`
 - `RUNNING -> FAILED`
 - `RUNNING -> CANCELLED`
 
-Terminal states cannot transition again. `JobStatus.canTransitionTo` is the
+`SKIPPED` records a pipeline Job that never ran because a step it depends on
+ended without success; see
+[dependency-aware scheduling](./execution-model.md#dependency-aware-scheduling).
+It is reachable only from `CREATED`, because a Job is queued only after its
+dependencies succeeded. Terminal states cannot transition again. `JobStatus.canTransitionTo` is the
 single source of these transitions, as defined by
 [execution model v1](./execution-model.md), and invalid transitions raise
 `InvalidJobTransitionException`. Timestamps must be ordered: creation must

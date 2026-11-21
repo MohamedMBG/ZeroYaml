@@ -53,8 +53,8 @@ import io.zeroyaml.controlplane.orchestration.OrchestrationTestDoubles.Recording
 /**
  * Drives the first supported scenario through the Control Plane: a push for a
  * connected Maven repository produces ordered Jobs, each step is dispatched to
- * the assigned Runner only after the previous one succeeded, and Runner reports
- * bring every Job to its terminal state. Only the repository provider, Runner
+ * the assigned Runner only after the step it depends on succeeded, and Runner
+ * reports bring every Job to its terminal state. Only the repository provider, Runner
  * selection, and the Runner transport are replaced.
  */
 class PipelineOrchestratorTest {
@@ -109,7 +109,7 @@ class PipelineOrchestratorTest {
 	}
 
 	@Test
-	void aFailingCommandFailsItsJobWithTheReasonAndCancelsTheLaterSteps() {
+	void aFailingCommandFailsItsJobWithTheReasonAndSkipsTheStepsThatDependOnIt() {
 		connect(true);
 		source.paths = Set.of("pom.xml", "mvnw");
 		orchestrator.handle(push("delivery-1"));
@@ -124,7 +124,10 @@ class PipelineOrchestratorTest {
 		assertEquals("NON_ZERO_EXIT", failed.failure().orElseThrow().code());
 		assertEquals("job command exited with status 1", failed.failure().orElseThrow().message());
 		assertEquals(1, failed.exit().getAsInt());
-		assertEquals(JobStatus.CANCELLED, job(stepJob("test")).status());
+		var test = job(stepJob("test"));
+		assertEquals(JobStatus.SKIPPED, test.status());
+		assertTrue(test.queuedAt().isEmpty());
+		assertTrue(test.runnerAssignment().isEmpty());
 		assertEquals(1, runner.dispatched.size());
 	}
 

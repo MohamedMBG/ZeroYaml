@@ -28,6 +28,7 @@ class InMemoryJobStore implements JobStore {
 
 	private final ConcurrentHashMap<JobId, Job> jobsById = new ConcurrentHashMap<>();
 	private final ConcurrentHashMap<JobId, PipelineJobReference> pipelineJobs = new ConcurrentHashMap<>();
+	private final ConcurrentHashMap<JobId, List<String>> dependencies = new ConcurrentHashMap<>();
 
 	@Override
 	public Job recordIfAbsent(Job job) {
@@ -43,6 +44,7 @@ class InMemoryJobStore implements JobStore {
 		var recorded = recordIfAbsent(pipelineJob.job());
 		pipelineJobs.put(recorded.id(), new PipelineJobReference(
 				pipelineJob.pipelineId(), pipelineJob.position(), pipelineJob.stepName(), recorded.id()));
+		dependencies.put(recorded.id(), pipelineJob.dependsOn());
 		return recorded;
 	}
 
@@ -57,7 +59,8 @@ class InMemoryJobStore implements JobStore {
 	@Override
 	public List<PipelineStepStatus> findPipelineStepStatuses(PipelineId pipelineId, RepositoryReference source) {
 		return findByPipeline(pipelineId, source).stream()
-				.map(reference -> new PipelineStepStatus(reference, jobsById.get(reference.jobId()).status())).toList();
+				.map(reference -> new PipelineStepStatus(reference, jobsById.get(reference.jobId()).status(),
+						dependencies.get(reference.jobId()))).toList();
 	}
 
 	@Override
