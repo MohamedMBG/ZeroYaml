@@ -144,7 +144,11 @@ func TestDockerExecutionLogCapture(t *testing.T) {
 				t.Fatal(err)
 			}
 			names := newResourceNames(id)
-			if _, err := s.docker(ctx, volumeCreateArgs(names)...); err != nil {
+			claim, err := newWorkspaceClaim()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.docker(ctx, volumeCreateArgs(names, claim)...); err != nil {
 				t.Fatal(err)
 			}
 			// Cleanup remains armed if an assertion or Docker command fails.

@@ -15,6 +15,8 @@ import (
 
 const testExecutionID = "0123456789ab"
 
+const testWorkspaceClaim = "00112233445566778899aabbccddeeff"
+
 func TestJobCreateArgsPassTheCommandAndWorkingDirectoryExplicitly(t *testing.T) {
 	spec := testSpec()
 	spec.Command = []string{"go", "test", "./...", "-run", "Test; rm -rf /"}
@@ -99,6 +101,7 @@ func TestRunReportsASuccessfulCommandAndRemovesEveryResource(t *testing.T) {
 
 	wantCommands := []string{
 		"volume create",
+		"volume inspect",
 		"create zeroyaml-" + testExecutionID + "-checkout",
 		"start checkout-id",
 		"wait checkout-id",
@@ -194,7 +197,7 @@ func TestRunRemovesTheWorkspaceVolumeWhenItsCreationFails(t *testing.T) {
 		t.Fatalf("Outcome = %s, want %s", result.Outcome, OutcomeExecutionError)
 	}
 
-	wantCommands := []string{"volume create", "volume rm"}
+	wantCommands := []string{"volume create", "volume inspect", "volume rm"}
 	if got := docker.commandSummary(); !slices.Equal(got, wantCommands) {
 		t.Errorf("docker commands =\n%v\nwant\n%v", got, wantCommands)
 	}
@@ -298,6 +301,128 @@ func TestRunReportsAnUnreadableExitCodeAsAnExecutionError(t *testing.T) {
 	docker.assertCleanedUp(t, "checkout-id", "job-id")
 }
 
+func TestVolumeCreateArgsLabelTheWorkspaceWithItsClaim(t *testing.T) {
+	names := newResourceNames(testExecutionID)
+
+	args := volumeCreateArgs(names, testWorkspaceClaim)
+
+	assertOption(t, args, "--label", managedLabel)
+	assertOption(t, args, "--label", executionLabelName+"="+testExecutionID)
+	assertOption(t, args, "--label", workspaceClaimLabelName+"="+testWorkspaceClaim)
+	if args[len(args)-1] != names.volume {
+		t.Errorf("volume name = %q, want %q", args[len(args)-1], names.volume)
+	}
+}
+
+func TestRunVerifiesTheWorkspaceClaimBeforeAnyContainerMountsIt(t *testing.T) {
+	docker := newFakeDocker()
+
+	result := newTestSandbox(docker).Run(context.Background(), testSpec())
+
+	if result.Outcome != OutcomeSucceeded {
+		t.Fatalf("Outcome = %s, want %s: %s", result.Outcome, OutcomeSucceeded, result.Message)
+	}
+	commands := docker.commandSummary()
+	inspect := slices.Index(commands, "volume inspect")
+	checkout := slices.Index(commands, "create zeroyaml-"+testExecutionID+"-checkout")
+	if inspect < 0 || checkout < 0 || inspect > checkout {
+		t.Errorf("docker commands = %v, want the claim check before the first container", commands)
+	}
+}
+
+// TestRunNeverMountsOrRemovesAWorkspaceClaimedByAnotherExecution covers a
+// volume name that already exists, for example after an execution ID
+// collision: docker volume create succeeds for it, so only the claim reveals
+// that the volume holds another execution's workspace.
+func TestRunNeverMountsOrRemovesAWorkspaceClaimedByAnotherExecution(t *testing.T) {
+	docker := newFakeDocker()
+	docker.foreignClaim = "ffeeddccbbaa99887766554433221100"
+
+	result := newTestSandbox(docker).Run(context.Background(), testSpec())
+
+	if result.Outcome != OutcomeExecutionError {
+		t.Fatalf("Outcome = %s, want %s", result.Outcome, OutcomeExecutionError)
+	}
+	if !strings.Contains(result.Message, "already belongs to another execution") {
+		t.Errorf("Message = %q, want the ownership conflict", result.Message)
+	}
+	wantCommands := []string{"volume create", "volume inspect"}
+	if got := docker.commandSummary(); !slices.Equal(got, wantCommands) {
+		t.Errorf("docker commands =\n%v\nwant\n%v", got, wantCommands)
+	}
+}
+
+func TestRunLeavesAnotherExecutionsWorkspaceAfterAFailedCreate(t *testing.T) {
+	docker := newFakeDocker()
+	docker.failures["volume create"] = errors.New("docker volume: exit status 1: connection reset by peer")
+	docker.foreignClaim = "ffeeddccbbaa99887766554433221100"
+
+	result := newTestSandbox(docker).Run(context.Background(), testSpec())
+
+	if result.Outcome != OutcomeExecutionError {
+		t.Fatalf("Outcome = %s, want %s", result.Outcome, OutcomeExecutionError)
+	}
+	wantCommands := []string{"volume create", "volume inspect"}
+	if got := docker.commandSummary(); !slices.Equal(got, wantCommands) {
+		t.Errorf("docker commands =\n%v\nwant\n%v", got, wantCommands)
+	}
+}
+
+func TestRunLeavesAnUnverifiedWorkspaceForManualCleanup(t *testing.T) {
+	var output bytes.Buffer
+	docker := newFakeDocker()
+	docker.failures["volume inspect"] = errors.New("docker volume: exit status 1: connection reset by peer")
+	s := newTestSandbox(docker)
+	s.logger = slog.New(slog.NewTextHandler(&output, nil))
+
+	result := s.Run(context.Background(), testSpec())
+
+	if result.Outcome != OutcomeExecutionError {
+		t.Fatalf("Outcome = %s, want %s", result.Outcome, OutcomeExecutionError)
+	}
+	if !strings.Contains(result.Message, "workspace ownership check failed") {
+		t.Errorf("Message = %q, want the failed stage", result.Message)
+	}
+	wantCommands := []string{"volume create", "volume inspect"}
+	if got := docker.commandSummary(); !slices.Equal(got, wantCommands) {
+		t.Errorf("docker commands =\n%v\nwant\n%v", got, wantCommands)
+	}
+	if !strings.Contains(output.String(), "execution_id="+testExecutionID) {
+		t.Errorf("warning does not name the execution: %s", output.String())
+	}
+}
+
+// TestRunChecksTheWorkspaceClaimWithALiveContextAfterCancellation keeps a
+// cancellation that arrives during the create from stranding this execution's
+// own volume: the claim is still read and the volume still removed.
+func TestRunChecksTheWorkspaceClaimWithALiveContextAfterCancellation(t *testing.T) {
+	docker := newFakeDocker()
+	ctx, cancel := context.WithCancel(context.Background())
+	s := newTestSandbox(docker)
+	s.docker = func(callCtx context.Context, args ...string) (string, error) {
+		output, err := docker.run(callCtx, args...)
+		if summarize(args) == "volume create" {
+			cancel()
+		}
+		return output, err
+	}
+	docker.failures["create zeroyaml-"+testExecutionID+"-checkout"] = context.Canceled
+
+	result := s.Run(ctx, testSpec())
+
+	if result.Outcome != OutcomeCancelled {
+		t.Fatalf("Outcome = %s, want %s: %s", result.Outcome, OutcomeCancelled, result.Message)
+	}
+	docker.mu.Lock()
+	for _, call := range docker.calls {
+		if summarize(call.args) == "volume inspect" && !call.contextAlive {
+			t.Error("the workspace claim was read with a cancelled context")
+		}
+	}
+	docker.mu.Unlock()
+	docker.assertCleanedUp(t, "zeroyaml-"+testExecutionID+"-checkout")
+}
+
 func TestRunLogsAFailedCleanupWithoutChangingTheResult(t *testing.T) {
 	docker := newFakeDocker()
 	docker.failures["volume rm"] = errors.New("docker volume: exit status 1: volume is in use")
@@ -337,6 +462,15 @@ type fakeDocker struct {
 	blockOnWait map[string]bool
 	onWait      func(containerID string)
 
+	// workspaceClaim is the claim label of the first volume create, recorded
+	// even when that create reports a failure, because the daemon may have
+	// created the volume before the response was lost.
+	workspaceClaim string
+
+	// foreignClaim, when set, makes the workspace volume look like it already
+	// belongs to another execution.
+	foreignClaim string
+
 	// blockOnCreate names a container whose creation hangs until the context
 	// ends, like a slow image pull.
 	blockOnCreate string
@@ -359,6 +493,9 @@ func (f *fakeDocker) run(ctx context.Context, args ...string) (string, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, fakeDockerCall{args: args, contextAlive: ctx.Err() == nil})
 	summary := summarize(args)
+	if summary == "volume create" && f.workspaceClaim == "" {
+		f.workspaceClaim = labelValue(args, workspaceClaimLabelName)
+	}
 	failure := f.failures[summary]
 	f.mu.Unlock()
 
@@ -367,6 +504,16 @@ func (f *fakeDocker) run(ctx context.Context, args ...string) (string, error) {
 	}
 
 	switch args[0] {
+	case "volume":
+		if args[1] != "inspect" {
+			return "", nil
+		}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.foreignClaim != "" {
+			return f.foreignClaim + "\n", nil
+		}
+		return f.workspaceClaim + "\n", nil
 	case "create":
 		if args[2] == f.blockOnCreate {
 			<-ctx.Done()
@@ -456,13 +603,28 @@ func summarize(args []string) string {
 	}
 }
 
+// labelValue returns the value of the --label option named name, or "" when
+// args carry no such label.
+func labelValue(args []string, name string) string {
+	for index := 0; index < len(args)-1; index++ {
+		if args[index] == "--label" && strings.HasPrefix(args[index+1], name+"=") {
+			return strings.TrimPrefix(args[index+1], name+"=")
+		}
+	}
+
+	return ""
+}
+
 func newTestSandbox(docker *fakeDocker) *Sandbox {
-	return newSandbox(
+	s := newSandbox(
 		docker.run,
 		func() (string, error) { return testExecutionID, nil },
 		time.Second,
 		slog.New(slog.DiscardHandler),
 	)
+	s.newClaim = func() (string, error) { return testWorkspaceClaim, nil }
+
+	return s
 }
 
 func testSpec() Spec {

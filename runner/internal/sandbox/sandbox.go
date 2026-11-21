@@ -16,6 +16,12 @@
 // Every resource is removed before Run returns, whether the command succeeded,
 // failed, timed out, or was cancelled. Removal uses its own bounded context, so
 // a cancelled execution still cleans up.
+//
+// An execution only ever mounts its own workspace volume. Because docker
+// volume create silently reuses an existing volume of the same name, each
+// execution labels its volume with a private claim token and verifies the
+// token before any container mounts the volume. A volume claimed by another
+// execution is never mounted and never removed.
 package sandbox
 
 import (
@@ -108,6 +114,7 @@ type Sandbox struct {
 	stream          dockerStreamFunc
 	logs            joblogs.Sink
 	newID           func() (string, error)
+	newClaim        func() (string, error)
 	cleanupTimeout  time.Duration
 	logFinalTimeout time.Duration
 	// logCloseTimeout replaces logFinalTimeout after a cancellation.
@@ -149,6 +156,7 @@ func newSandbox(
 	return &Sandbox{
 		docker:          docker,
 		newID:           newID,
+		newClaim:        newWorkspaceClaim,
 		cleanupTimeout:  cleanupTimeout,
 		logFinalTimeout: defaultLogFinalTimeout,
 		logCloseTimeout: maxLogCloseTimeout,
@@ -199,15 +207,45 @@ func (s *Sandbox) closeLog(ctx context.Context, capture *joblogs.Capture, interr
 
 func (s *Sandbox) run(ctx context.Context, runCtx context.Context, executionID string, spec Spec, output *jobOutput) Result {
 	names := newResourceNames(executionID)
+	claim, err := s.newClaim()
+	if err != nil {
+		return Result{Outcome: OutcomeExecutionError, Message: fmt.Sprintf("generate workspace claim: %v", err)}
+	}
 
-	if _, err := s.docker(runCtx, volumeCreateArgs(names)...); err != nil {
+	if _, err := s.docker(runCtx, volumeCreateArgs(names, claim)...); err != nil {
 		// A failed create never proves that nothing was created: the daemon may
 		// have created the volume and then lost the response, for example when
-		// the CLI was stopped or the connection broke. Removal by name is
-		// therefore attempted for every create failure.
-		s.removeAfterFailedCreate(ctx, executionID, "workspace volume", "volume", "rm", "--force", names.volume)
+		// the CLI was stopped or the connection broke. The volume is therefore
+		// removed after every create failure, but only when it carries this
+		// execution's claim, so a same-named workspace of another execution is
+		// never deleted.
+		if claimant, inspectErr := s.workspaceClaimant(ctx, names); inspectErr != nil {
+			s.logger.DebugContext(ctx, "workspace volume not found after a failed create",
+				slog.String("execution_id", executionID), slog.String("error", inspectErr.Error()))
+		} else if claimant == claim {
+			s.remove(ctx, executionID, "workspace volume", "volume", "rm", "--force", names.volume)
+		}
 
 		return s.interrupted(ctx, runCtx, spec, "workspace creation", err)
+	}
+
+	claimant, err := s.workspaceClaimant(ctx, names)
+	if err != nil {
+		// Ownership is unknown, so removing the volume could delete another
+		// execution's workspace. It stays labelled for manual cleanup.
+		s.logger.WarnContext(ctx, "workspace volume ownership could not be verified; volume left for manual cleanup",
+			slog.String("execution_id", executionID), slog.String("error", err.Error()))
+
+		return s.interrupted(ctx, runCtx, spec, "workspace ownership check", err)
+	}
+	if claimant != claim {
+		s.logger.WarnContext(ctx, "workspace volume already belongs to another execution",
+			slog.String("execution_id", executionID), slog.String("volume", names.volume))
+
+		return Result{
+			Outcome: OutcomeExecutionError,
+			Message: fmt.Sprintf("workspace volume %s already belongs to another execution; it was left untouched", names.volume),
+		}
 	}
 	defer s.remove(ctx, executionID, "workspace volume", "volume", "rm", "--force", names.volume)
 
@@ -429,14 +467,38 @@ func (s *Sandbox) removeResource(
 	}
 }
 
+// workspaceClaimant reads the claim token of the execution's workspace volume.
+// The read uses a context detached from the execution, like removal, so a
+// cancellation that arrives right after the create cannot leave this
+// execution's own volume behind as unverified.
+func (s *Sandbox) workspaceClaimant(ctx context.Context, names resourceNames) (string, error) {
+	inspectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cleanupTimeout)
+	defer cancel()
+
+	claimant, err := s.docker(inspectCtx, volumeClaimArgs(names)...)
+
+	return strings.TrimSpace(claimant), err
+}
+
 // newExecutionID returns 12 random hexadecimal characters. The identifier is
 // generated rather than derived from the Job ID, which is caller-supplied and
 // may contain characters Docker does not accept in resource names.
 func newExecutionID() (string, error) {
-	var value [6]byte
-	if _, err := rand.Read(value[:]); err != nil {
+	return randomHex(6)
+}
+
+// newWorkspaceClaim returns 32 random hexadecimal characters. It is independent
+// of the execution ID, so an execution ID collision cannot also collide the
+// claim.
+func newWorkspaceClaim() (string, error) {
+	return randomHex(16)
+}
+
+func randomHex(size int) (string, error) {
+	value := make([]byte, size)
+	if _, err := rand.Read(value); err != nil {
 		return "", err
 	}
 
-	return hex.EncodeToString(value[:]), nil
+	return hex.EncodeToString(value), nil
 }
