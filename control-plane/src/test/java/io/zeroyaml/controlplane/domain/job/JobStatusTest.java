@@ -5,6 +5,7 @@ import static io.zeroyaml.controlplane.domain.job.JobStatus.CREATED;
 import static io.zeroyaml.controlplane.domain.job.JobStatus.FAILED;
 import static io.zeroyaml.controlplane.domain.job.JobStatus.QUEUED;
 import static io.zeroyaml.controlplane.domain.job.JobStatus.RUNNING;
+import static io.zeroyaml.controlplane.domain.job.JobStatus.SKIPPED;
 import static io.zeroyaml.controlplane.domain.job.JobStatus.SUCCEEDED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -21,12 +22,13 @@ class JobStatusTest {
 
 	/** Execution model v1 transition table, written out independently of the implementation. */
 	private static final Map<JobStatus, Set<JobStatus>> ALLOWED = Map.of(
-			CREATED, Set.of(QUEUED, CANCELLED),
+			CREATED, Set.of(QUEUED, CANCELLED, SKIPPED),
 			QUEUED, Set.of(RUNNING, CANCELLED),
 			RUNNING, Set.of(SUCCEEDED, FAILED, CANCELLED),
 			SUCCEEDED, Set.of(),
 			FAILED, Set.of(),
-			CANCELLED, Set.of());
+			CANCELLED, Set.of(),
+			SKIPPED, Set.of());
 
 	@ParameterizedTest
 	@EnumSource(JobStatus.class)
@@ -45,7 +47,7 @@ class JobStatusTest {
 			}
 		}
 
-		assertEquals(EnumSet.of(SUCCEEDED, FAILED, CANCELLED), terminal);
+		assertEquals(EnumSet.of(SUCCEEDED, FAILED, CANCELLED, SKIPPED), terminal);
 		terminal.forEach(status -> assertEquals(Set.of(), ALLOWED.get(status)));
 	}
 

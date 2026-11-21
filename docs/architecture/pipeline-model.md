@@ -58,8 +58,9 @@ object). An existing `Pipeline` is therefore always executable.
 
 ## Ordering and identity
 
-The plan orders steps one after another as supplied; executing them belongs to
-the application boundary, not this model. Because every dependency names an
+The plan orders steps as supplied; executing them belongs to the application
+boundary, not this model. Steps run in dependency order, as described in
+[dependency-aware scheduling](./execution-model.md#dependency-aware-scheduling). Because every dependency names an
 earlier step, the supplied order is always a valid execution order and the
 dependencies cannot form a cycle. The order is
 preserved exactly: it is never sorted by name and never reordered. The supplied
@@ -90,8 +91,9 @@ it follows the `PipelineStep` name format. Any other combination is rejected
 with `IllegalArgumentException`. An outcome keeps only the `PipelineId`, so
 comparing or storing it never walks the plan. These are value types only.
 `PipelineStatus.canTransitionTo` defines the allowed run transitions of
-[execution model v1](./execution-model.md); driving them from Job outcomes
-belongs to later Phase 3 work (#170, #171).
+[execution model v1](./execution-model.md). Dependency-aware scheduling (#170)
+decides each step from the recorded Job states; deriving and recording a run
+status from them belongs to #171, together with run cancellation.
 
 ## Out of scope
 

@@ -1,6 +1,7 @@
 package io.zeroyaml.controlplane.orchestration;
 
 import java.time.Clock;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Objects;
 
@@ -15,6 +16,8 @@ import io.zeroyaml.controlplane.domain.job.JobStatus;
 import io.zeroyaml.controlplane.domain.job.RepositoryReference;
 import io.zeroyaml.controlplane.domain.job.RunnerAssignment;
 import io.zeroyaml.controlplane.domain.pipeline.PipelineId;
+import io.zeroyaml.controlplane.domain.pipeline.PipelineSchedule;
+import io.zeroyaml.controlplane.domain.pipeline.PipelineSchedule.StepDecision;
 import io.zeroyaml.controlplane.execution.JobStore;
 import io.zeroyaml.controlplane.execution.PipelineJobReference;
 import io.zeroyaml.controlplane.runner.RunnerClient;
@@ -24,13 +27,23 @@ import io.zeroyaml.controlplane.scheduling.RunnerSelectionOutcome;
 import io.zeroyaml.controlplane.scheduling.RunnerSelector;
 
 /**
- * Moves a pipeline forward one step at a time: the next step is dispatched only
- * after every earlier step succeeded, and the steps after a failed or cancelled
- * step are cancelled.
+ * Moves a pipeline forward in dependency order: a step is dispatched only after
+ * every step it depends on succeeded, and a step whose dependency ended without
+ * success is recorded as {@link JobStatus#SKIPPED}.
  *
- * <p>Every call reads the recorded state of all steps and acts on it, so calling
- * it again for the same pipeline, for example after a redelivered push, never
+ * <p>Every call reads the recorded state and dependencies of all steps and acts
+ * on the {@link PipelineSchedule} computed from them, so calling it again for
+ * the same pipeline, for example after a redelivered push or a restart, never
  * dispatches a step twice. Callers serialize calls, including retry scans.</p>
+ *
+ * <h2>Scheduling</h2>
+ *
+ * <p>Within one call, every step that is ready is dispatched, in step order, so
+ * independent steps start together and the order of dispatch is the same every
+ * time. Skips are recorded first, in step order. A step that waits for a
+ * dependency is left untouched; the completion of that dependency calls this
+ * class again. A failed, cancelled, or skipped step affects only the steps that
+ * depend on it, directly or transitively; independent steps keep running.</p>
  *
  * <h2>Dispatch</h2>
  *
@@ -46,7 +59,8 @@ import io.zeroyaml.controlplane.scheduling.RunnerSelector;
  *   <li>rejected as unavailable: clear the assignment so a later call can retry;</li>
  *   <li>accepted by another process, otherwise rejected, or refused with
  *       {@code INVALID_ARGUMENT} or {@code FAILED_PRECONDITION}: the Job is
- *       cancelled with the reason logged, and so are the later steps;</li>
+ *       cancelled with the reason logged, and the steps that depend on it are
+ *       skipped;</li>
  *   <li>any other transport failure: whether the Runner started the Job is
  *       unknown, so it stays queued and assigned. If the Runner did start it,
  *       its reports are still accepted.</li>
@@ -103,41 +117,67 @@ class PipelineProgression {
 				.ifPresent(reference -> advance(reference.pipelineId(), source));
 	}
 
-	/** Dispatches the first step that has not run yet, or cancels the steps after a failed one. */
+	/**
+	 * Records the skips and dispatches the ready steps of one pipeline run.
+	 *
+	 * <p>An abandoned dispatch cancels its Job, which can make further steps
+	 * skippable, so the schedule is computed again until a pass abandons nothing.
+	 * An abandoned Job is cancelled, or has already left the queue through a
+	 * concurrent status report; either way it is never dispatched again, which
+	 * bounds the passes by the number of steps.</p>
+	 */
 	void advance(PipelineId pipelineId, RepositoryReference source) {
 		Objects.requireNonNull(pipelineId, "pipelineId must not be null");
 		Objects.requireNonNull(source, "source must not be null");
 
-		var statuses = jobs.findPipelineStepStatuses(pipelineId, source);
-		var steps = statuses.stream().map(JobStore.PipelineStepStatus::reference).toList();
-		for (var index = 0; index < steps.size(); index++) {
-			var step = steps.get(index);
-			var status = statuses.get(index).status();
-			switch (status) {
-				case SUCCEEDED -> {
-					// Earlier step done; look at the next one.
-				}
-				case CREATED, QUEUED -> {
-					if (!dispatch(step)) {
-						cancel(steps.subList(index + 1, steps.size()), step);
-					}
-					return;
-				}
-				case RUNNING -> {
-					return;
-				}
-				case FAILED, CANCELLED -> {
-					cancel(steps.subList(index + 1, steps.size()), step);
-					return;
-				}
-			}
-		}
-		if (!steps.isEmpty()) {
-			log.info("Pipeline {} finished: all {} steps succeeded", pipelineId.value(), steps.size());
+		var abandoned = true;
+		while (abandoned) {
+			abandoned = advanceOnce(pipelineId, source);
 		}
 	}
 
-	/** Returns false when the step was abandoned, so the later steps cannot run either. */
+	/** Returns true when a dispatch was abandoned, so the schedule must be computed again. */
+	private boolean advanceOnce(PipelineId pipelineId, RepositoryReference source) {
+		var steps = jobs.findPipelineStepStatuses(pipelineId, source);
+		if (steps.isEmpty()) {
+			return false;
+		}
+		var schedule = PipelineSchedule.of(steps.stream()
+				.map(step -> new PipelineSchedule.StepState(step.reference().stepName(), step.dependsOn(), step.status()))
+				.toList());
+		var decisions = schedule.decisions();
+
+		for (var index = 0; index < steps.size(); index++) {
+			if (decisions.get(index) instanceof StepDecision.Skip skip) {
+				skip(steps.get(index).reference(), skip.unsuccessfulDependencies());
+			}
+		}
+		var abandoned = false;
+		for (var index = 0; index < steps.size(); index++) {
+			var step = steps.get(index).reference();
+			switch (decisions.get(index)) {
+				case StepDecision.Ready ready -> abandoned |= !dispatch(step);
+				case StepDecision.Blocked blocked -> log.debug(
+						"Job {} (pipeline {} step {} '{}') waits for {}", step.jobId().value(),
+						step.pipelineId().value(), step.position(), step.stepName(), blocked.waitingOn());
+				case StepDecision.Skip skip -> {
+					// Recorded above, before any dispatch.
+				}
+				case StepDecision.Running running -> {
+					// Its completion calls this class again.
+				}
+				case StepDecision.Settled settled -> {
+					// Nothing left to do for this step.
+				}
+			}
+		}
+		if (!abandoned && schedule.isComplete()) {
+			logFinished(pipelineId, steps, decisions);
+		}
+		return abandoned;
+	}
+
+	/** Returns false when the step was abandoned, so the steps that depend on it cannot run either. */
 	private boolean dispatch(PipelineJobReference step) {
 		var claim = jobs.update(step.jobId(), job -> claim(job, step)).orElseThrow();
 		if (!(claim instanceof Claim.Assigned assigned)) {
@@ -193,7 +233,7 @@ class PipelineProgression {
 			job.queue(clock.instant());
 		}
 		if (job.status() != JobStatus.QUEUED || job.runnerAssignment().isPresent()) {
-			return new Claim.Skipped();
+			return new Claim.NotAssigned();
 		}
 		return switch (selector.select(job)) {
 			case RunnerSelectionOutcome.Selected selected -> {
@@ -203,7 +243,7 @@ class PipelineProgression {
 			case RunnerSelectionOutcome.NoAvailableRunner blocked -> {
 				log.warn("Job {} (pipeline {} step {}) stays queued: {}",
 						job.id().value(), step.pipelineId().value(), step.position(), blocked.message());
-				yield new Claim.Skipped();
+				yield new Claim.NotAssigned();
 			}
 		};
 	}
@@ -220,27 +260,39 @@ class PipelineProgression {
 		return false;
 	}
 
-	private void cancel(List<PipelineJobReference> later, PipelineJobReference failedStep) {
-		for (var step : later) {
-			var cancelled = jobs.update(step.jobId(), job -> {
-				if (job.status() != JobStatus.CREATED) {
-					return false;
-				}
-				job.cancel(clock.instant());
-				return true;
-			}).orElse(false);
-			if (cancelled) {
-				log.info("Job {} (pipeline {} step {} '{}') is cancelled because step {} '{}' did not succeed",
-						step.jobId().value(), step.pipelineId().value(), step.position(), step.stepName(),
-						failedStep.position(), failedStep.stepName());
+	private void skip(PipelineJobReference step, List<String> unsuccessfulDependencies) {
+		var skipped = jobs.update(step.jobId(), job -> {
+			if (job.status() != JobStatus.CREATED) {
+				return false;
 			}
+			job.skip(clock.instant());
+			return true;
+		}).orElse(false);
+		if (skipped) {
+			log.info("Job {} (pipeline {} step {} '{}') is skipped because its dependencies {} did not succeed",
+					step.jobId().value(), step.pipelineId().value(), step.position(), step.stepName(),
+					unsuccessfulDependencies);
 		}
+	}
+
+	private static void logFinished(PipelineId pipelineId, List<JobStore.PipelineStepStatus> steps,
+			List<StepDecision> decisions) {
+		var counts = new EnumMap<JobStatus, Integer>(JobStatus.class);
+		for (var index = 0; index < steps.size(); index++) {
+			// A step decided as skipped in this pass is recorded as skipped already.
+			var status = decisions.get(index) instanceof StepDecision.Skip ? JobStatus.SKIPPED : steps.get(index).status();
+			counts.merge(status, 1, Integer::sum);
+		}
+		log.info("Pipeline {} finished: {} steps, {} succeeded, {} failed, {} cancelled, {} skipped",
+				pipelineId.value(), steps.size(), counts.getOrDefault(JobStatus.SUCCEEDED, 0),
+				counts.getOrDefault(JobStatus.FAILED, 0), counts.getOrDefault(JobStatus.CANCELLED, 0),
+				counts.getOrDefault(JobStatus.SKIPPED, 0));
 	}
 
 	private sealed interface Claim {
 
 		record Assigned(Job job, RunnerAssignment runner) implements Claim { }
 
-		record Skipped() implements Claim { }
+		record NotAssigned() implements Claim { }
 	}
 }

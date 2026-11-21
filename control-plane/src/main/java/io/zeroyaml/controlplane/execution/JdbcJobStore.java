@@ -63,7 +63,7 @@ class JdbcJobStore implements JobStore {
 	@Override
 	public Job recordIfAbsent(Job job) {
 		Objects.requireNonNull(job, "job must not be null");
-		return record(job, null, null, null);
+		return record(job, null, null, null, null);
 	}
 
 	@Override
@@ -91,20 +91,20 @@ class JdbcJobStore implements JobStore {
 					.param("location", source.location().toString())
 					.param("revision", source.revision())
 					.query(Long.class).single();
-			return record(job, runId, pipelineJob.stepName(), pipelineJob.position());
+			return record(job, runId, pipelineJob.stepName(), pipelineJob.position(), pipelineJob.dependsOn());
 		}), "transaction produced no result");
 	}
 
-	private Job record(Job job, Long runId, String stepName, Integer position) {
+	private Job record(Job job, Long runId, String stepName, Integer position, List<String> dependencies) {
 		if (job.status() != JobStatus.CREATED) {
 			throw new IllegalArgumentException("Only a newly created Job can be recorded");
 		}
 		validateLocation(job.repository().location());
 		int inserted = jdbc.sql("""
-						INSERT INTO job (id, pipeline_run_id, step_name, step_position,
+						INSERT INTO job (id, pipeline_run_id, step_name, step_position, step_dependencies,
 						                 repository_location, revision, command_json, working_directory,
 						                 status, created_at)
-						VALUES (:id, :runId, :stepName, :position, :location, :revision,
+						VALUES (:id, :runId, :stepName, :position, CAST(:dependencies AS jsonb), :location, :revision,
 						        CAST(:command AS jsonb), :workingDirectory, 'CREATED', :createdAt)
 						ON CONFLICT (id) DO NOTHING
 						""")
@@ -112,6 +112,7 @@ class JdbcJobStore implements JobStore {
 				.param("runId", runId, Types.BIGINT)
 				.param("stepName", stepName, Types.VARCHAR)
 				.param("position", position, Types.INTEGER)
+				.param("dependencies", dependencies == null ? null : json.writeValueAsString(dependencies), Types.VARCHAR)
 				.param("location", job.repository().location().toString())
 				.param("revision", job.repository().revision())
 				.param("command", json.writeValueAsString(job.execution().command()))
@@ -127,13 +128,16 @@ class JdbcJobStore implements JobStore {
 			throw new IllegalStateException("Job " + job.id().value() + " already has another definition");
 		}
 		if (runId != null) {
-			// shortcut: positions follow the last request per step; version plans when concurrent re-planning is supported.
+			// shortcut: positions and dependencies follow the last request per step; version plans when
+			// concurrent re-planning is supported.
 			jdbc.sql("""
-						UPDATE job SET pipeline_run_id = :runId, step_name = :stepName, step_position = :position
+						UPDATE job SET pipeline_run_id = :runId, step_name = :stepName, step_position = :position,
+						               step_dependencies = CAST(:dependencies AS jsonb)
 						WHERE id = :id AND (pipeline_run_id IS NULL
 						    OR (pipeline_run_id = :runId AND step_name = :stepName))
 						""")
 					.param("runId", runId).param("stepName", stepName).param("position", position)
+					.param("dependencies", json.writeValueAsString(dependencies))
 					.param("id", job.id().value()).update();
 			var link = jdbc.sql("SELECT pipeline_run_id, step_name, step_position FROM job WHERE id = :id")
 					.param("id", job.id().value())
@@ -206,7 +210,7 @@ class JdbcJobStore implements JobStore {
 		Objects.requireNonNull(pipelineId, "pipelineId must not be null");
 		Objects.requireNonNull(source, "source must not be null");
 		return jdbc.sql("""
-				SELECT r.pipeline_id, j.step_position, j.step_name, j.id, j.status
+				SELECT r.pipeline_id, j.step_position, j.step_name, j.id, j.status, j.step_dependencies
 				FROM job j JOIN pipeline_run r ON r.id = j.pipeline_run_id
 				WHERE r.pipeline_id = :pipelineId AND r.repository_location = :location AND r.revision = :revision
 				ORDER BY j.step_position, j.id
@@ -214,7 +218,8 @@ class JdbcJobStore implements JobStore {
 				.param("pipelineId", pipelineId.value()).param("location", source.location().toString())
 				.param("revision", source.revision())
 				.query((row, number) -> new PipelineStepStatus(toReference(row, number),
-						JobStatus.valueOf(row.getString("status")))).list();
+						JobStatus.valueOf(row.getString("status")),
+						Arrays.asList(json.readValue(row.getString("step_dependencies"), String[].class)))).list();
 	}
 
 	@Override
@@ -280,6 +285,8 @@ class JdbcJobStore implements JobStore {
 					row.getObject("exit_code", Integer.class)), fromColumn(row, "completed_at"));
 		} else if (status == JobStatus.CANCELLED) {
 			job.cancel(fromColumn(row, "completed_at"));
+		} else if (status == JobStatus.SKIPPED) {
+			job.skip(fromColumn(row, "completed_at"));
 		}
 		return job;
 	}

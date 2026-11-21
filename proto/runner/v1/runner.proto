@@ -346,6 +346,10 @@ enum JobLifecycleState {
   JOB_LIFECYCLE_SUCCEEDED = 4;
   JOB_LIFECYCLE_FAILED = 5;
   JOB_LIFECYCLE_CANCELLED = 6;
+  // The Job never ran because a pipeline step it depends on ended without
+  // success. A Runner never receives such a Job; the state appears only when a
+  // report names a Job that the Control Plane skipped.
+  JOB_LIFECYCLE_SKIPPED = 7;
 }
 
 message PingRequest {

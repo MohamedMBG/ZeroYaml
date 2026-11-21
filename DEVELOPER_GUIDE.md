@@ -736,7 +736,10 @@ contract are documented in
 A verified branch push for a connected, active repository starts the first
 end-to-end scenario. The Control Plane reads the commit's root file listing
 through the GitHub Git Trees API, infers the pipeline, records its Jobs, and
-dispatches the steps to the selected Runner one after another.
+dispatches each step to the selected Runner once every step it depends on
+succeeded. A step whose dependency failed, was cancelled, or was skipped is
+recorded as `SKIPPED`; steps that do not depend on it keep running. See
+[`docs/architecture/execution-model.md`](./docs/architecture/execution-model.md#dependency-aware-scheduling).
 
 | Property | Environment variable | Default | Purpose |
 | --- | --- | --- | --- |

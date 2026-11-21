@@ -160,6 +160,37 @@ class JobTest {
 }
 
 	@Test
+	void skipsACreatedJobWithoutQueueingOrAssigningIt() {
+		var job = newJob();
+
+		job.skip(QUEUED_AT);
+
+		assertEquals(JobStatus.SKIPPED, job.status());
+		assertTrue(job.status().isTerminal());
+		assertEquals(QUEUED_AT, job.completedAt().orElseThrow());
+		assertTrue(job.queuedAt().isEmpty());
+		assertTrue(job.startedAt().isEmpty());
+		assertTrue(job.runnerAssignment().isEmpty());
+		assertTrue(job.failure().isEmpty());
+		assertThrows(InvalidJobTransitionException.class, () -> job.queue(STARTED_AT));
+		assertThrows(InvalidJobTransitionException.class, () -> job.cancel(STARTED_AT));
+	}
+
+	@Test
+	void refusesToSkipAJobThatWasQueuedOrWithATimestampBeforeCreation() {
+		var early = newJob();
+		assertThrows(IllegalArgumentException.class, () -> early.skip(CREATED_AT.minusSeconds(1)));
+		assertEquals(JobStatus.CREATED, early.status());
+
+		var queued = newJob();
+		queued.queue(QUEUED_AT);
+		var exception = assertThrows(InvalidJobTransitionException.class, () -> queued.skip(STARTED_AT));
+		assertEquals(JobStatus.QUEUED, exception.getCurrentStatus());
+		assertEquals(JobStatus.SKIPPED, exception.getRequestedStatus());
+		assertEquals(JobStatus.QUEUED, queued.status());
+	}
+
+	@Test
 	void rejectsOutOfOrderTimestampsWithoutChangingState() {
 		var job = newJob();
 

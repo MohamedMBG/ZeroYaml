@@ -268,6 +268,23 @@ class JobExecutionStatusRecorderTest {
 	}
 
 	@Test
+	void refusesEveryReportForASkippedJobAndKeepsItSkipped() {
+		var job = Job.create(JobId.newId(), repository(), execution(), CREATED_AT);
+		job.skip(CREATED_AT.plusSeconds(1));
+		jobs.add(job);
+
+		var running = recorder.record(JobStatusReport.running(job.id(), RUNNER, STARTED_AT));
+		var succeeded = recorder.record(JobStatusReport.succeeded(job.id(), RUNNER, STARTED_AT, COMPLETED_AT, 0));
+
+		assertEquals(JobStatusReportDecision.CONFLICT, running.decision());
+		assertEquals(JobStatus.SKIPPED, running.jobStatus());
+		assertEquals(JobStatusReportDecision.CONFLICT, succeeded.decision());
+		assertEquals(JobStatus.SKIPPED, job.status());
+		assertTrue(job.runnerAssignment().isEmpty());
+		assertTrue(published.isEmpty());
+	}
+
+	@Test
 	void refusesAReportThatStartedBeforeTheJobExisted() {
 		var job = queuedJob();
 

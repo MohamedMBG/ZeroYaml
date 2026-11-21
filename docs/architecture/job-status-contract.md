@@ -67,7 +67,9 @@ changes it.
 
 The response also carries `job_state`, the authoritative Job lifecycle state
 after reconciliation. A Runner may use it to learn that its Job was already
-cancelled, but it derives no policy from it.
+cancelled, but it derives no policy from it. `JOB_LIFECYCLE_SKIPPED` never
+describes a Job the Runner received: a skipped Job is never dispatched, so every
+report for one is answered `JOB_STATUS_REPORT_CONFLICT`.
 
 ### Duplicate and late reports
 

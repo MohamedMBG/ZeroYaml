@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 
 import io.zeroyaml.controlplane.domain.job.ExecutionDefinition;
 import io.zeroyaml.controlplane.domain.job.Job;
+import io.zeroyaml.controlplane.domain.job.JobFailure;
 import io.zeroyaml.controlplane.domain.job.JobId;
 import io.zeroyaml.controlplane.domain.job.JobStatus;
 import io.zeroyaml.controlplane.domain.job.RepositoryReference;
@@ -36,7 +37,7 @@ import io.zeroyaml.controlplane.runner.JobDispatchResult;
 import io.zeroyaml.controlplane.runner.JobRejectionReason;
 import io.zeroyaml.controlplane.runner.RunnerClientException;
 
-/** Covers how each dispatch outcome moves, keeps, or stops a pipeline. */
+/** Covers dependency-aware scheduling and how each dispatch outcome moves, keeps, or stops a pipeline. */
 class PipelineProgressionTest {
 
 	private static final Instant NOW = Instant.parse("2026-11-01T10:00:00Z");
@@ -138,7 +139,7 @@ class PipelineProgressionTest {
 		progression.advance(PIPELINE, SOURCE);
 
 		assertEquals(JobStatus.CANCELLED, status(steps.get(0)));
-		assertEquals(JobStatus.CANCELLED, status(steps.get(1)));
+		assertEquals(JobStatus.SKIPPED, status(steps.get(1)));
 	}
 
 	@Test
@@ -151,7 +152,7 @@ class PipelineProgressionTest {
 		progression.advance(PIPELINE, SOURCE);
 
 		assertEquals(JobStatus.CANCELLED, status(steps.get(0)));
-		assertEquals(JobStatus.CANCELLED, status(steps.get(1)));
+		assertEquals(JobStatus.SKIPPED, status(steps.get(1)));
 	}
 
 	@Test
@@ -186,6 +187,104 @@ class PipelineProgressionTest {
 	}
 
 	@Test
+	void dispatchesIndependentStepsTogetherAndAJoinOnlyAfterEveryDependencySucceeded() {
+		var steps = createPipeline(
+				step("build"),
+				step("unit", "build"),
+				step("integration", "build"),
+				step("package", "unit", "integration"));
+
+		progression.advance(PIPELINE, SOURCE);
+		assertEquals(List.of(steps.get(0)), dispatchedIds());
+
+		succeed(steps.get(0));
+		progression.advanceAfter(steps.get(0));
+		assertEquals(List.of(steps.get(0), steps.get(1), steps.get(2)), dispatchedIds());
+		assertEquals(JobStatus.CREATED, status(steps.get(3)));
+
+		succeed(steps.get(1));
+		progression.advanceAfter(steps.get(1));
+		assertEquals(3, runner.dispatched.size(), "package must wait for integration");
+		assertEquals(JobStatus.CREATED, status(steps.get(3)));
+
+		succeed(steps.get(2));
+		progression.advanceAfter(steps.get(2));
+		assertEquals(steps, dispatchedIds());
+	}
+
+	@Test
+	void startsEveryStepWithoutDependenciesInStepOrder() {
+		var steps = createPipeline(step("lint"), step("build"), step("docs"));
+
+		progression.advance(PIPELINE, SOURCE);
+		progression.advance(PIPELINE, SOURCE);
+
+		assertEquals(steps, dispatchedIds());
+	}
+
+	@Test
+	void aFailedStepSkipsItsDependentsTransitivelyAndIndependentStepsKeepRunning() {
+		var steps = createPipeline(
+				step("build"),
+				step("lint"),
+				step("test", "build"),
+				step("package", "test"),
+				step("report", "lint"));
+		progression.advance(PIPELINE, SOURCE);
+		assertEquals(List.of(steps.get(0), steps.get(1)), dispatchedIds());
+
+		fail(steps.get(0));
+		progression.advanceAfter(steps.get(0));
+
+		assertEquals(JobStatus.SKIPPED, status(steps.get(2)));
+		assertEquals(JobStatus.SKIPPED, status(steps.get(3)));
+		assertTrue(job(steps.get(3)).queuedAt().isEmpty());
+		assertEquals(NOW, job(steps.get(3)).completedAt().orElseThrow());
+		assertEquals(JobStatus.QUEUED, status(steps.get(1)));
+		assertEquals(JobStatus.CREATED, status(steps.get(4)));
+
+		succeed(steps.get(1));
+		progression.advanceAfter(steps.get(1));
+
+		assertEquals(List.of(steps.get(0), steps.get(1), steps.get(4)), dispatchedIds());
+	}
+
+	@Test
+	void anAbandonedDispatchSkipsOnlyTheStepsThatDependOnIt() {
+		var steps = createPipeline(step("build"), step("lint"), step("test", "build"), step("report", "lint"));
+		runner.answer = job -> {
+			if (job.id().equals(steps.get(0))) {
+				throw new RunnerClientException(Status.Code.INVALID_ARGUMENT, "invalid job", null);
+			}
+			return JobDispatchResult.accepted(job.id(), RUNNER, "accepted");
+		};
+
+		progression.advance(PIPELINE, SOURCE);
+
+		assertEquals(JobStatus.CANCELLED, status(steps.get(0)));
+		assertEquals(JobStatus.SKIPPED, status(steps.get(2)));
+		assertEquals(JobStatus.QUEUED, status(steps.get(1)));
+		assertEquals(RUNNER, job(steps.get(1)).runnerAssignment().orElseThrow());
+		assertEquals(JobStatus.CREATED, status(steps.get(3)));
+	}
+
+	@Test
+	void recordingTheSameScheduleAgainChangesNothing() {
+		var steps = createPipeline(step("build"), step("test", "build"));
+		progression.advance(PIPELINE, SOURCE);
+		fail(steps.get(0));
+		progression.advanceAfter(steps.get(0));
+		var skippedAt = job(steps.get(1)).completedAt().orElseThrow();
+
+		new PipelineProgression(jobs, selector, runner, Clock.fixed(NOW.plusSeconds(60), ZoneOffset.UTC))
+				.advance(PIPELINE, SOURCE);
+
+		assertEquals(JobStatus.SKIPPED, status(steps.get(1)));
+		assertEquals(skippedAt, job(steps.get(1)).completedAt().orElseThrow());
+		assertEquals(1, runner.dispatched.size());
+	}
+
+	@Test
 	void ignoresACompletedJobThatBelongsToNoPipeline() {
 		var job = Job.create(SOURCE, new ExecutionDefinition(List.of("true"), "."), NOW);
 		jobs.add(job);
@@ -196,12 +295,35 @@ class PipelineProgressionTest {
 		assertTrue(runner.dispatched.isEmpty());
 	}
 
+	/** The inferred Maven shape: {@code test} depends on {@code build}. */
 	private List<JobId> createPipeline() {
-		var pipeline = new Pipeline(PIPELINE, SOURCE, List.of(
-				new PipelineStep("build", new ExecutionDefinition(List.of("mvn", "package"), ".")),
-				new PipelineStep("test", new ExecutionDefinition(List.of("mvn", "test"), "."))));
+		return createPipeline(step("build"), step("test", "build"));
+	}
+
+	private List<JobId> createPipeline(PipelineStep... steps) {
+		var pipeline = new Pipeline(PIPELINE, SOURCE, List.of(steps));
 		return ExecutionTestSupport.jobCreation(jobs, clock).createJobs(pipeline).jobs().stream()
 				.map(PipelineJobReference::jobId).toList();
+	}
+
+	private static PipelineStep step(String name, String... dependsOn) {
+		return new PipelineStep(name, new ExecutionDefinition(List.of("make", name), "."), List.of(dependsOn));
+	}
+
+	private void succeed(JobId id) {
+		jobs.update(id, job -> {
+			job.start(RUNNER, NOW.plusSeconds(1));
+			job.succeed(NOW.plusSeconds(2), 0);
+			return job.status();
+		});
+	}
+
+	private void fail(JobId id) {
+		jobs.update(id, job -> {
+			job.start(RUNNER, NOW.plusSeconds(1));
+			job.fail(new JobFailure("NON_ZERO_EXIT", "job command exited with status 1", 1), NOW.plusSeconds(2));
+			return job.status();
+		});
 	}
 
 	private List<JobId> dispatchedIds() {

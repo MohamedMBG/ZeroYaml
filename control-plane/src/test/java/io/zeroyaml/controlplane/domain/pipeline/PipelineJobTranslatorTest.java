@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -148,6 +149,36 @@ class PipelineJobTranslatorTest {
 	void invalidStepCommandNeverReachesTranslation() {
 		assertThrows(IllegalArgumentException.class, () -> new ExecutionDefinition(List.of(), "."));
 		assertThrows(IllegalArgumentException.class, () -> new ExecutionDefinition(List.of(" "), "."));
+	}
+
+	@Test
+	void carriesEachStepsDependenciesWithoutChangingJobIdentity() {
+		var build = step("build", "make");
+		var test = new PipelineStep("test", new ExecutionDefinition(List.of("make", "test"), "."), List.of("build"));
+		var independent = new PipelineStep("test", test.execution());
+
+		var jobs = translator.translate(new Pipeline(PIPELINE_ID, SOURCE, List.of(build, test)), CREATED_AT);
+		var withoutDependencies = translator.translate(
+				new Pipeline(PIPELINE_ID, SOURCE, List.of(build, independent)), CREATED_AT);
+
+		assertEquals(List.of(), jobs.get(0).dependsOn());
+		assertEquals(List.of("build"), jobs.get(1).dependsOn());
+		// Dependencies are scheduling data, not part of what the Job executes.
+		assertEquals(jobIds(withoutDependencies), jobIds(jobs));
+	}
+
+	@Test
+	void pipelineJobCopiesItsDependencies() {
+		var job = translator.translate(new Pipeline(PIPELINE_ID, SOURCE, List.of(step("build", "make"))), CREATED_AT)
+				.get(0).job();
+		var dependencies = new ArrayList<>(List.of("lint"));
+
+		var pipelineJob = new PipelineJob(PIPELINE_ID, 2, "build", job, dependencies);
+		dependencies.add("docs");
+
+		assertEquals(List.of("lint"), pipelineJob.dependsOn());
+		assertEquals(List.of(), new PipelineJob(PIPELINE_ID, 1, "build", job).dependsOn());
+		assertThrows(NullPointerException.class, () -> new PipelineJob(PIPELINE_ID, 1, "build", job, null));
 	}
 
 	@Test

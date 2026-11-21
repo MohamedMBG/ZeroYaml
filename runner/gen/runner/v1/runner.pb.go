@@ -487,6 +487,10 @@ const (
 	JobLifecycleState_JOB_LIFECYCLE_SUCCEEDED         JobLifecycleState = 4
 	JobLifecycleState_JOB_LIFECYCLE_FAILED            JobLifecycleState = 5
 	JobLifecycleState_JOB_LIFECYCLE_CANCELLED         JobLifecycleState = 6
+	// The Job never ran because a pipeline step it depends on ended without
+	// success. A Runner never receives such a Job; the state appears only when a
+	// report names a Job that the Control Plane skipped.
+	JobLifecycleState_JOB_LIFECYCLE_SKIPPED JobLifecycleState = 7
 )
 
 // Enum value maps for JobLifecycleState.
@@ -499,6 +503,7 @@ var (
 		4: "JOB_LIFECYCLE_SUCCEEDED",
 		5: "JOB_LIFECYCLE_FAILED",
 		6: "JOB_LIFECYCLE_CANCELLED",
+		7: "JOB_LIFECYCLE_SKIPPED",
 	}
 	JobLifecycleState_value = map[string]int32{
 		"JOB_LIFECYCLE_STATE_UNSPECIFIED": 0,
@@ -508,6 +513,7 @@ var (
 		"JOB_LIFECYCLE_SUCCEEDED":         4,
 		"JOB_LIFECYCLE_FAILED":            5,
 		"JOB_LIFECYCLE_CANCELLED":         6,
+		"JOB_LIFECYCLE_SKIPPED":           7,
 	}
 )
 
@@ -2001,7 +2007,7 @@ const file_runner_v1_runner_proto_rawDesc = "" +
 	"\x19JOB_STATUS_REPORT_APPLIED\x10\x01\x12\x1f\n" +
 	"\x1bJOB_STATUS_REPORT_DUPLICATE\x10\x02\x12!\n" +
 	"\x1dJOB_STATUS_REPORT_UNKNOWN_JOB\x10\x03\x12\x1e\n" +
-	"\x1aJOB_STATUS_REPORT_CONFLICT\x10\x04*\xdc\x01\n" +
+	"\x1aJOB_STATUS_REPORT_CONFLICT\x10\x04*\xf7\x01\n" +
 	"\x11JobLifecycleState\x12#\n" +
 	"\x1fJOB_LIFECYCLE_STATE_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15JOB_LIFECYCLE_CREATED\x10\x01\x12\x18\n" +
@@ -2009,7 +2015,8 @@ const file_runner_v1_runner_proto_rawDesc = "" +
 	"\x15JOB_LIFECYCLE_RUNNING\x10\x03\x12\x1b\n" +
 	"\x17JOB_LIFECYCLE_SUCCEEDED\x10\x04\x12\x18\n" +
 	"\x14JOB_LIFECYCLE_FAILED\x10\x05\x12\x1b\n" +
-	"\x17JOB_LIFECYCLE_CANCELLED\x10\x06*d\n" +
+	"\x17JOB_LIFECYCLE_CANCELLED\x10\x06\x12\x19\n" +
+	"\x15JOB_LIFECYCLE_SKIPPED\x10\a*d\n" +
 	"\fJobLogStream\x12\x1e\n" +
 	"\x1aJOB_LOG_STREAM_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15JOB_LOG_STREAM_STDOUT\x10\x01\x12\x19\n" +

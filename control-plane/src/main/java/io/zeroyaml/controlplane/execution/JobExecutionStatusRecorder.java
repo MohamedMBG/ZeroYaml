@@ -151,6 +151,10 @@ public class JobExecutionStatusRecorder {
 					job.status(),
 					"Job " + job.id().value() + " was never queued for execution"
 			);
+			case SKIPPED -> JobStatusReportOutcome.conflict(
+					job.status(),
+					"Job " + job.id().value() + " was skipped because a dependency did not succeed and was never dispatched"
+			);
 			case QUEUED -> {
 				if (job.runnerAssignment().isEmpty()) {
 					yield notDispatched(job);
